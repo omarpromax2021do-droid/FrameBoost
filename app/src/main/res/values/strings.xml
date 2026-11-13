@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Framewise</string>
+    <string name="tagline">Real-Time GPU Frame Generation &amp; CAS Clarity</string>
+
+    <!-- Language & Common -->
+    <string name="lang_switch_label">العربية</string>
+    <string name="lang_english">English (LTR)</string>
+    <string name="lang_arabic">العربية (RTL)</string>
+    <string name="btn_next">Next</string>
+    <string name="btn_back">Back</string>
+    <string name="btn_finish">Finish &amp; Open Dashboard</string>
+    <string name="btn_skip_calibration">Use Safe Defaults</string>
+    <string name="btn_granted">Ready</string>
+    <string name="btn_grant">Configure</string>
+    <string name="status_active">Active</string>
+    <string name="status_inactive">Standby</string>
+    <string name="status_enabled">Enabled</string>
+    <string name="status_disabled">Disabled</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_step_format">Step %1$d of %2$d</string>
+    <string name="onboarding_s1_title">Double Smoothness, Zero Blur</string>
+    <string name="onboarding_s1_desc">Framewise uses OpenGL ES 3.1+ GPU shaders to generate intermediate motion-compensated frames (30→60 or 60→120 FPS) and applies Contrast Adaptive Sharpening (CAS) so fast gameplay stays razor-sharp.</string>
+    <string name="onboarding_s1_card1_title">Optical Flow Interpolation</string>
+    <string name="onboarding_s1_card1_desc">Synthesizes smooth intermediate frames directly on the GPU with occlusion and edge guards to prevent ghosting.</string>
+    <string name="onboarding_s1_card2_title">AMD CAS Anti-Blur Pass</string>
+    <string name="onboarding_s1_card2_desc">Fused 5-tap Contrast Adaptive Sharpening removes dynamic-resolution softness without adding extra render passes.</string>
+
+    <string name="onboarding_s2_title">Honest Technical Expectations</string>
+    <string name="onboarding_s2_desc">Framewise never fakes metrics. Here is what real hardware interpolation requires:</string>
+    <string name="onboarding_s2_point1">• Console Mode (30→60 FPS) works best when the base game holds a steady 25–30+ FPS.</string>
+    <string name="onboarding_s2_point2">• Competitive Mode (60→120 FPS) requires a 90/120Hz screen and a steady 45–60+ FPS base rate.</string>
+    <string name="onboarding_s2_point3">• Frame generation holds 1 previous frame in GPU memory, adding ~1 frame of pipeline latency.</string>
+    <string name="onboarding_s2_point4">• Android 14+ Single-App Capture is recommended so Framewise captures only the game window and never loops over its own overlay.</string>
+
+    <string name="onboarding_s3_title">Guided Permission Setup</string>
+    <string name="onboarding_s3_desc">Grant the core system permissions below. Screen Capture is requested securely each time you start a session.</string>
+    <string name="perm_capture_title">Single-App Screen Capture</string>
+    <string name="perm_capture_desc">Requested via Android MediaProjection when starting frame generation. On Android 14+, pick only your target game window.</string>
+    <string name="perm_capture_badge">On Launch</string>
+    <string name="perm_accessibility_title">Touch-Passthrough Overlay &amp; Auto-Pilot</string>
+    <string name="perm_accessibility_desc">Accessibility overlay keeps touches 100% responsive on Android 12–14+ and detects foreground games like COD Mobile &amp; RDR1.</string>
+    <string name="perm_notifications_title">Session Notifications</string>
+    <string name="perm_notifications_desc">Required to run the persistent Foreground Capture &amp; GPU Pacing notification cleanly.</string>
+    <string name="perm_battery_title">Unrestricted Battery Usage</string>
+    <string name="perm_battery_desc">Prevents Android Doze from throttling the GPU render thread during long gaming sessions.</string>
+
+    <string name="onboarding_s4_title">3-Second GPU Calibration</string>
+    <string name="onboarding_s4_desc">Run a real 3.0-second offscreen OpenGL ES shader benchmark on your GPU to measure pass timing and configure optimal presets automatically.</string>
+    <string name="btn_run_calibration">Run 3s GPU Calibration</string>
+    <string name="calibration_running">Running offscreen shader pass…</string>
+    <string name="calibration_complete">Calibration Complete</string>
+    <string name="calibration_result_format">Avg GPU Pass: %1$.2f ms • Est. Headroom: %2$d FPS</string>
+    <string name="calibration_preset_format">Auto-Configured: %1$s (%2$d%% scale, CAS %3$.2f, %4$d Hz)</string>
+
+    <!-- Dashboard -->
+    <string name="nav_settings">Settings</string>
+    <string name="nav_back">Back</string>
+    <string name="dashboard_honest_banner">Pipeline Info: Adds ~1 frame of buffering latency. Best results require steady 25–30+ FPS (30→60) or 45–60+ FPS (60→120).</string>
+    <string name="quick_start_title">Interpolation Engine</string>
+    <string name="quick_start_phase1_note">Phase 1 Shell Ready — Live zero-copy capture &amp; GPU overlay engine activates in Phases 2–3.</string>
+    <string name="btn_quick_start">Prepare Engine (Phase 2)</string>
+    <string name="btn_calibrate_now">Calibrate GPU</string>
+
+    <string name="active_profile_title">Active Pipeline Profile</string>
+    <string name="mode_console_30_60">30→60 FPS Console Mode</string>
+    <string name="mode_console_desc">Ideal for RDR1 &amp; heavy AAA titles (24+ FPS gate)</string>
+    <string name="mode_competitive_60_120">60→120 FPS Competitive Mode</string>
+    <string name="mode_competitive_desc">Alternating synthetic/real frames at 8.33ms VSync</string>
+    <string name="mode_stabilizer_60_cas">60Hz Stabilizer + CAS Sharpener</string>
+    <string name="mode_stabilizer_desc">Ultra-low GPU overhead (&lt;0.3ms) + crisp detail</string>
+
+    <string name="autopilot_title">Auto-Pilot Game Profiles</string>
+    <string name="autopilot_codm">Call of Duty Mobile</string>
+    <string name="autopilot_codm_detail">120Hz Competitive (40% scale, CAS 0.65) + HUD Crosshair Mask • 60Hz fallback</string>
+    <string name="autopilot_rdr1">Red Dead Redemption 1 &amp; AAA</string>
+    <string name="autopilot_rdr1_detail">30→60 FPS Console Mode (25% Ultra-Light, High CAS 0.85)</string>
+
+    <string name="hardware_card_title">Hardware &amp; Display Profiler</string>
+    <string name="hw_soc">SoC</string>
+    <string name="hw_gpu">GPU Renderer</string>
+    <string name="hw_gles">OpenGL ES</string>
+    <string name="hw_ram">Memory (Avail / Total)</string>
+    <string name="hw_display_modes">Physical Display Modes</string>
+    <string name="hw_tier">Hardware Tier</string>
+    <string name="hw_calibrated_pass">Calibrated Shader Pass</string>
+    <string name="hw_not_calibrated">Not calibrated yet</string>
+    <string name="btn_copy_report">Copy Markdown Report</string>
+    <string name="report_copied_msg">Compatibility report copied to clipboard</string>
+
+    <string name="tier_high_flagship">HIGH FLAGSHIP</string>
+    <string name="tier_mid_120hz">MID-RANGE 120HZ</string>
+    <string name="tier_low_60hz">LEGACY 60HZ</string>
+    <string name="tier_unsupported">UNSUPPORTED (&lt;GLES 3.0 / Low Spec)</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_language">Language &amp; Layout</string>
+    <string name="settings_section_gpu">GPU Interpolation &amp; CAS</string>
+    <string name="settings_motion_scale">Motion Estimation Scale</string>
+    <string name="scale_25">25% Ultra-Light</string>
+    <string name="scale_40">40% Balanced</string>
+    <string name="scale_60">60% Quality</string>
+    <string name="settings_cas_strength">CAS Sharpening Strength</string>
+    <string name="settings_target_fps">Target Output Refresh Rate</string>
+    <string name="settings_fps_capped_note">Capped to your physical panel max (%1$d Hz)</string>
+
+    <string name="settings_section_automation">Auto-Pilot &amp; Protections</string>
+    <string name="settings_autopilot">Auto-Pilot Game Detection</string>
+    <string name="settings_hud_mask">FPS Shooter HUD Protection Mask</string>
+    <string name="settings_thermal_guard">Thermal Guard Auto-Scale</string>
+
+    <string name="settings_section_updater">GitHub Release Updater</string>
+    <string name="settings_check_startup">Check for updates on startup</string>
+    <string name="settings_current_version">Current Version: v%1$s</string>
+    <string name="btn_check_updates">Check for Updates</string>
+    <string name="btn_download_install">Download &amp; Install v%1$s</string>
+    <string name="btn_install_now">Install Verified APK</string>
+    <string name="btn_grant_install_perm">Allow Unknown App Installs</string>
+
+    <string name="updater_idle">Tap to check GitHub releases securely over HTTPS.</string>
+    <string name="updater_checking">Checking GitHub releases…</string>
+    <string name="updater_up_to_date">You are running the latest version (v%1$s).</string>
+    <string name="updater_available">Update available: v%1$s</string>
+    <string name="updater_downloading">Downloading &amp; verifying SHA-256: %1$d%%</string>
+    <string name="updater_verified">SHA-256 verified cleanly. Ready to install.</string>
+    <string name="updater_rate_limited">GitHub API rate limit reached (403/429). Try again later.</string>
+    <string name="updater_error">Update error: %1$s</string>
+
+    <string name="settings_section_tools">Calibration &amp; Onboarding</string>
+    <string name="btn_rerun_calibration">Re-run 3s GPU Calibration</string>
+    <string name="btn_reopen_onboarding">Open Welcome Guide</string>
+</resources>

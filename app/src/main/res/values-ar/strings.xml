@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Framewise</string>
+    <string name="tagline">توليد الإطارات بالمعالج الرسومي وتوضيح الصورة CAS في الوقت الفعلي</string>
+
+    <!-- Language & Common -->
+    <string name="lang_switch_label">English</string>
+    <string name="lang_english">English (LTR)</string>
+    <string name="lang_arabic">العربية (RTL)</string>
+    <string name="btn_next">التالي</string>
+    <string name="btn_back">رجوع</string>
+    <string name="btn_finish">إنهاء وفتح لوحة التحكم</string>
+    <string name="btn_skip_calibration">استخدام الإعدادات الآمنة</string>
+    <string name="btn_granted">جاهز</string>
+    <string name="btn_grant">إعداد</string>
+    <string name="status_active">نشط</string>
+    <string name="status_inactive">في وضع الاستعداد</string>
+    <string name="status_enabled">مفعّل</string>
+    <string name="status_disabled">معطّل</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_step_format">الخطوة %1$d من %2$d</string>
+    <string name="onboarding_s1_title">سلاسة مضاعفة، وضوح بلا ضبابية</string>
+    <string name="onboarding_s1_desc">يستخدم Framewise مظللات OpenGL ES 3.1+ على المعالج الرسومي لتوليد إطارات وسيطة بتعويض الحركة (30→60 أو 60→120 إطار/ث) مع تمرير توضيح التباين التكيفي (CAS) ليبقى اللعب السريع حاداً وواضحاً.</string>
+    <string name="onboarding_s1_card1_title">توليد الإطارات بالتدفق البصري</string>
+    <string name="onboarding_s1_card1_desc">ينشئ إطارات وسيطة سلسة مباشرة على الـ GPU مع حماية الحواف ومنع التداخل لتفادي الأطياف.</string>
+    <string name="onboarding_s1_card2_title">مصفاة AMD CAS لمنع الضبابية</string>
+    <string name="onboarding_s1_card2_desc">توضيح ذكي مدمج يزيل نعومة الدقة الديناميكية في نفس تمريرة الرسم دون عبء إضافي.</string>
+
+    <string name="onboarding_s2_title">التوقعات التقنية الصادقة</string>
+    <string name="onboarding_s2_desc">لا يزيّف Framewise أي أرقام إطلاقاً. إليك متطلبات توليد الإطارات الحقيقي:</string>
+    <string name="onboarding_s2_point1">• وضع الكونسول (30→60 FPS) يعمل بأفضل صورة عندما تحافظ اللعبة على ثبات 25–30+ إطاراً في الثانية.</string>
+    <string name="onboarding_s2_point2">• الوضع التنافسي (60→120 FPS) يتطلب شاشة 90/120Hz ومعدل لعب أساسي مستقر عند 45–60+ FPS.</string>
+    <string name="onboarding_s2_point3">• يتطلب توليد الإطارات الاحتفاظ بإطار واحد سابق في الذاكرة، مما يضيف نحو إطار واحد من زمن الاستجابة.</string>
+    <string name="onboarding_s2_point4">• يُنصح بميزة التقاط تطبيق واحد في أندرويد 14+ لتصوير اللعبة فقط وتجنب إعادة تصوير طبقة العرض.</string>
+
+    <string name="onboarding_s3_title">دليل إعداد الأذونات</string>
+    <string name="onboarding_s3_desc">هيّئ الأذونات الأساسية أدناه. يتم طلب إذن التقاط الشاشة بأمان عند بدء كل جلسة.</string>
+    <string name="perm_capture_title">التقاط شاشة التطبيق الواحد</string>
+    <string name="perm_capture_desc">يُطلب عبر MediaProjection عند بدء التشغيل. في أندرويد 14+ اختر نافذة اللعبة فقط.</string>
+    <string name="perm_capture_badge">عند التشغيل</string>
+    <string name="perm_accessibility_title">طبقة تمرير اللمس وكاشف الألعاب التلقائي</string>
+    <string name="perm_accessibility_desc">تضمن خدمة إمكانية الوصول استجابة اللمس بنسبة 100% على أندرويد 12–14+ وتكتشف ألعاباً مثل COD Mobile و RDR1 تلقائياً.</string>
+    <string name="perm_notifications_title">إشعارات الجلسة</string>
+    <string name="perm_notifications_desc">مطلوبة لتشغيل خدمة الالتقاط والمزامنة الأمامية بشكل مستقر في النظام.</string>
+    <string name="perm_battery_title">استخدام بطارية غير مقيد</string>
+    <string name="perm_battery_desc">يمنع النظام من تقليص سرعة خيط المعالج الرسومي أثناء جلسات اللعب الطويلة.</string>
+
+    <string name="onboarding_s4_title">معايرة المعالج الرسومي (3 ثوانٍ)</string>
+    <string name="onboarding_s4_desc">شغّل اختباراً حقيقياً لمدة 3 ثوانٍ لمظلل OpenGL ES خارج الشاشة لقياس زمن التمرير وضبط أفضل إعدادات لهاتفك تلقائياً.</string>
+    <string name="btn_run_calibration">بدء معايرة 3 ثوانٍ</string>
+    <string name="calibration_running">جارٍ تشغيل اختبار المظلل على المعالج الرسومي…</string>
+    <string name="calibration_complete">اكتملت المعايرة</string>
+    <string name="calibration_result_format">متوسط تمرير GPU: %1$.2f مللي ثانية • السعة المقدرة: %2$d FPS</string>
+    <string name="calibration_preset_format">الضبط التلقائي: %1$s (نطاق %2$d%%، حدة CAS %3$.2f، %4$d Hz)</string>
+
+    <!-- Dashboard -->
+    <string name="nav_settings">الإعدادات</string>
+    <string name="nav_back">رجوع</string>
+    <string name="dashboard_honest_banner">معلومات المسار: يضيف نحو إطار واحد من زمن التمرير. أفضل النتائج تتطلب ثبات 25–30+ FPS (لوضع 30→60) أو 45–60+ FPS (لوضع 60→120).</string>
+    <string name="quick_start_title">محرك مضاعفة الإطارات</string>
+    <string name="quick_start_phase1_note">هيكل المرحلة 1 جاهز — سيتم تفعيل الالتقاط الصفري وطبقة المعالجة المباشرة في المرحلتين 2 و3.</string>
+    <string name="btn_quick_start">تهيئة المحرك (المرحلة 2)</string>
+    <string name="btn_calibrate_now">معايرة GPU</string>
+
+    <string name="active_profile_title">ملف المعالجة النشط</string>
+    <string name="mode_console_30_60">وضع الكونسول 30→60 FPS</string>
+    <string name="mode_console_desc">مثالي لـ RDR1 والألعاب الثقيلة (بوابة ذكية 24+ FPS)</string>
+    <string name="mode_competitive_60_120">الوضع التنافسي 60→120 FPS</string>
+    <string name="mode_competitive_desc">تناوب الإطار المولّد والحقيقي بمزامنة 8.33 مللي ثانية</string>
+    <string name="mode_stabilizer_60_cas">مثبت 60Hz + توضيح CAS</string>
+    <string name="mode_stabilizer_desc">أقل استهلاك GPU (&lt;0.3 مللي ثانية) مع حدة فائقة</string>
+
+    <string name="autopilot_title">ملفات الطيار الآلي للألعاب</string>
+    <string name="autopilot_codm">Call of Duty Mobile</string>
+    <string name="autopilot_codm_detail">وضع 120Hz التنافسي (نطاق 40%، حدة CAS 0.65) + قناع حماية التصويب HUD • احتياطي 60Hz</string>
+    <string name="autopilot_rdr1">Red Dead Redemption 1 وألعاب AAA</string>
+    <string name="autopilot_rdr1_detail">وضع الكونسول 30→60 FPS (نطاق فائق الخفة 25%، حدة CAS عالية 0.85)</string>
+
+    <string name="hardware_card_title">محلل العتاد والشاشة</string>
+    <string name="hw_soc">المعالج (SoC)</string>
+    <string name="hw_gpu">معالج الرسوميات (GPU)</string>
+    <string name="hw_gles">إصدار OpenGL ES</string>
+    <string name="hw_ram">الذاكرة (المتاح / الإجمالي)</string>
+    <string name="hw_display_modes">أوضاع الشاشة الفعلية</string>
+    <string name="hw_tier">فئة العتاد</string>
+    <string name="hw_calibrated_pass">زمن تمرير المظلل المعاير</string>
+    <string name="hw_not_calibrated">لم تتم المعايرة بعد</string>
+    <string name="btn_copy_report">نسخ تقرير التوافق (Markdown)</string>
+    <string name="report_copied_msg">تم نسخ تقرير التوافق إلى الحافظة</string>
+
+    <string name="tier_high_flagship">فئة رائدة عالية (Flagship)</string>
+    <string name="tier_mid_120hz">فئة متوسطة 120Hz</string>
+    <string name="tier_low_60hz">فئة قديمة 60Hz</string>
+    <string name="tier_unsupported">غير مدعوم (أقل من GLES 3.0 أو مواصفات منخفضة)</string>
+
+    <!-- Settings -->
+    <string name="settings_title">الإعدادات</string>
+    <string name="settings_section_language">اللغة والاتجاه</string>
+    <string name="settings_section_gpu">معالجة الإطارات وتوضيح CAS</string>
+    <string name="settings_motion_scale">دقة تقدير الحركة</string>
+    <string name="scale_25">25% فائق الخفة</string>
+    <string name="scale_40">40% متوازن</string>
+    <string name="scale_60">60% جودة عالية</string>
+    <string name="settings_cas_strength">قوة توضيح CAS</string>
+    <string name="settings_target_fps">معدل التحديث المستهدف</string>
+    <string name="settings_fps_capped_note">مقيد بالحد الأقصى الفعلي لشاشتك (%1$d Hz)</string>
+
+    <string name="settings_section_automation">الطيار الآلي والحماية</string>
+    <string name="settings_autopilot">كاشف الألعاب التلقائي</string>
+    <string name="settings_hud_mask">قناع حماية مؤشر التصويب وواجهة FPS</string>
+    <string name="settings_thermal_guard">الحماية الحرارية التلقائية</string>
+
+    <string name="settings_section_updater">محدّث إصدارات GitHub الآمن</string>
+    <string name="settings_check_startup">التحقق من التحديثات عند البدء</string>
+    <string name="settings_current_version">الإصدار الحالي: v%1$s</string>
+    <string name="btn_check_updates">التحقق من التحديثات الآن</string>
+    <string name="btn_download_install">تنزيل وتثبيت v%1$s</string>
+    <string name="btn_install_now">تثبيت الحزمة المتحقق منها</string>
+    <string name="btn_grant_install_perm">السماح بتثبيت التحديثات</string>
+
+    <string name="updater_idle">اضغط للتحقق من إصدارات GitHub بأمان عبر HTTPS.</string>
+    <string name="updater_checking">جارٍ التحقق من إصدارات GitHub…</string>
+    <string name="updater_up_to_date">أنت تستخدم أحدث إصدار (v%1$s).</string>
+    <string name="updater_available">تحديث متوفر: v%1$s</string>
+    <string name="updater_downloading">جارٍ التنزيل والتحقق من SHA-256: %1$d%%</string>
+    <string name="updater_verified">تم التحقق من بصمة SHA-256 بنجاح. جاهز للتثبيت.</string>
+    <string name="updater_rate_limited">تم بلوغ حد طلبات GitHub (403/429). حاول لاحقاً.</string>
+    <string name="updater_error">خطأ في التحديث: %1$s</string>
+
+    <string name="settings_section_tools">المعايرة والدليل</string>
+    <string name="btn_rerun_calibration">إعادة معايرة GPU (3 ثوانٍ)</string>
+    <string name="btn_reopen_onboarding">فتح شاشة الترحيب</string>
+</resources>
