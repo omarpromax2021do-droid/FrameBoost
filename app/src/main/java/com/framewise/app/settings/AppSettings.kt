@@ -14,6 +14,7 @@ data class AppSettings(
     val autoPilotEnabled: Boolean = true,
     val hudMaskEnabled: Boolean = true,
     val thermalGuardEnabled: Boolean = true,
+    val smartGateEnabled: Boolean = true,
     val checkUpdatesOnStartup: Boolean = true,
     val lastCalibrationMs: Double? = null,
     val hardwareTier: HardwareTier = HardwareTier.MID_RANGE_120HZ,

@@ -141,12 +141,18 @@
     <string name="btn_stop_frameboost">إيقاف FrameBoost</string>
     <string name="btn_enable_accessibility">تفعيل طبقة إمكانية الوصول</string>
     <string name="accessibility_required_msg">فعّل Framewise في إعدادات إمكانية الوصول أولاً لضمان تمرير اللمس بدون حجب.</string>
-    <string name="live_telemetry_title">القياسات الحقيقية المباشرة (تمرير 1x)</string>
-    <string name="capture_ready_note">المرحلة 2 نشطة: التقاط صفري OES إلى ذاكرة GPU FBO مع عداد القياسات العائم.</string>
+    <string name="live_telemetry_title">القياسات الحقيقية المباشرة (Optical Flow + CAS)</string>
+    <string name="capture_ready_note">المرحلة 3 نشطة: التدفق البصري المزدوج، توضيح AMD CAS المدمج، مزامنة VSync وبوابة الأمان الذكية.</string>
     <string name="capture_pre_u_note">أندرويد 8–13 يستخدم التقاط الشاشة الكاملة؛ تجنب تصوير نافذة Framewise نفسها لمنع التكرار المرئي.</string>
     <string name="telemetry_capture_fps">معدل الالتقاط (FPS)</string>
     <string name="telemetry_output_fps">معدل العرض (FPS)</string>
     <string name="telemetry_frame_time">زمن الإطار</string>
     <string name="telemetry_gpu_pass">زمن مظلل GPU</string>
     <string name="telemetry_latency">زمن الاستجابة الكلي</string>
+
+    <!-- Phase 3: Optical Flow, CAS & SmartGate -->
+    <string name="settings_smart_gate">بوابة الأمان الذكية (حماية FPS وGPU تلقائياً)</string>
+    <string name="telemetry_base_to_output">الأصلي ← المخرج (FPS)</string>
+    <string name="telemetry_cas_scale">حدة CAS ونطاق الحركة</string>
+    <string name="telemetry_smart_gate">حالة بوابة الأمان</string>
 </resources>

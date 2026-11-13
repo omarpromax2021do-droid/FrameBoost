@@ -55,6 +55,7 @@ fun SettingsScreen(
     onToggleAutoPilot: (Boolean) -> Unit,
     onToggleHudMask: (Boolean) -> Unit,
     onToggleThermalGuard: (Boolean) -> Unit,
+    onToggleSmartGate: (Boolean) -> Unit,
     onToggleStartupUpdateCheck: (Boolean) -> Unit,
     onCheckUpdates: () -> Unit,
     onDownloadUpdate: (ReleaseInfo) -> Unit,
@@ -203,6 +204,11 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_thermal_guard),
                     checked = settings.thermalGuardEnabled,
                     onCheckedChange = onToggleThermalGuard
+                )
+                SettingsToggleRow(
+                    title = stringResource(R.string.settings_smart_gate),
+                    checked = settings.smartGateEnabled,
+                    onCheckedChange = onToggleSmartGate
                 )
             }
 

@@ -141,12 +141,18 @@
     <string name="btn_stop_frameboost">Stop FrameBoost</string>
     <string name="btn_enable_accessibility">Enable Accessibility Overlay</string>
     <string name="accessibility_required_msg">Enable Framewise in Accessibility Settings first for zero-block touch passthrough.</string>
-    <string name="live_telemetry_title">Live Hardware Telemetry (1x Passthrough)</string>
-    <string name="capture_ready_note">Phase 2 Active: Zero-copy OES → GPU FBO passthrough &amp; floating telemetry HUD ready.</string>
+    <string name="live_telemetry_title">Live Hardware Telemetry (Optical Flow + CAS)</string>
+    <string name="capture_ready_note">Phase 3 Active: Dual-pass GLSL Optical Flow, fused AMD CAS sharpening, VSync pacing &amp; SmartGate.</string>
     <string name="capture_pre_u_note">Android 8–13 uses full-screen capture; avoid capturing the Framewise window directly to prevent visual echo.</string>
     <string name="telemetry_capture_fps">Capture FPS</string>
     <string name="telemetry_output_fps">Output FPS</string>
     <string name="telemetry_frame_time">Frame Time</string>
     <string name="telemetry_gpu_pass">GPU Shader Pass</string>
     <string name="telemetry_latency">Pipeline Latency</string>
+
+    <!-- Phase 3: Optical Flow, CAS & SmartGate -->
+    <string name="settings_smart_gate">Smart Fallback Gate (Auto FPS/GPU Guard)</string>
+    <string name="telemetry_base_to_output">Base → Output FPS</string>
+    <string name="telemetry_cas_scale">CAS &amp; Motion Scale</string>
+    <string name="telemetry_smart_gate">SmartGate Status</string>
 </resources>

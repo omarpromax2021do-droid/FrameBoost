@@ -31,6 +31,7 @@ class SettingsRepository(private val context: Context) {
         val AUTO_PILOT_ENABLED = booleanPreferencesKey("auto_pilot_enabled")
         val HUD_MASK_ENABLED = booleanPreferencesKey("hud_mask_enabled")
         val THERMAL_GUARD_ENABLED = booleanPreferencesKey("thermal_guard_enabled")
+        val SMART_GATE_ENABLED = booleanPreferencesKey("smart_gate_enabled")
         val CHECK_UPDATES_ON_STARTUP = booleanPreferencesKey("check_updates_on_startup")
         val LAST_CALIBRATION_MS = doublePreferencesKey("last_calibration_ms")
         val HARDWARE_TIER = stringPreferencesKey("hardware_tier")
@@ -52,6 +53,7 @@ class SettingsRepository(private val context: Context) {
             autoPilotEnabled = prefs[Keys.AUTO_PILOT_ENABLED] ?: true,
             hudMaskEnabled = prefs[Keys.HUD_MASK_ENABLED] ?: true,
             thermalGuardEnabled = prefs[Keys.THERMAL_GUARD_ENABLED] ?: true,
+            smartGateEnabled = prefs[Keys.SMART_GATE_ENABLED] ?: true,
             checkUpdatesOnStartup = prefs[Keys.CHECK_UPDATES_ON_STARTUP] ?: true,
             lastCalibrationMs = prefs[Keys.LAST_CALIBRATION_MS],
             hardwareTier = prefs[Keys.HARDWARE_TIER]
@@ -104,6 +106,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setThermalGuardEnabled(enabled: Boolean) {
         context.framewiseDataStore.edit { it[Keys.THERMAL_GUARD_ENABLED] = enabled }
+    }
+
+    suspend fun setSmartGateEnabled(enabled: Boolean) {
+        context.framewiseDataStore.edit { it[Keys.SMART_GATE_ENABLED] = enabled }
     }
 
     suspend fun setCheckUpdatesOnStartup(enabled: Boolean) {

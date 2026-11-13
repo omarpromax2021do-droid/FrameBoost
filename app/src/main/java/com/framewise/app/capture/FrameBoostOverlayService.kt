@@ -317,13 +317,16 @@ class FrameBoostOverlayService : AccessibilityService() {
         val m = PipelineController.latestMetricsSnapshot()
         tv.text = String.format(
             Locale.US,
-            "%s\nCAP %.1f | OUT %.1f FPS\nFT %.1fms | GPU %.2fms\nLAT %.1fms",
+            "%s\n%.1f -> %.1f FPS | FT %.1fms\nGPU %.2fms | LAT %.1fms\nCAS %d%% | Scale %d%%\n%s",
             m.activePreset,
             m.captureFps,
             m.outputFps,
             m.frameTimeMs,
             m.gpuPassTimeMs,
-            m.pipelineLatencyMs
+            m.pipelineLatencyMs,
+            m.casSharpnessPercent,
+            m.effectiveMotionScalePercent,
+            m.smartGateStatus
         )
     }
 
@@ -376,6 +379,15 @@ class FrameBoostOverlayService : AccessibilityService() {
             val service = instance ?: return
             service.mainHandler.post {
                 service.attachOverlaysInternal(preferredModeId, targetHz)
+            }
+        }
+
+        fun updateDisplayRate(preferredModeId: Int, targetHz: Float) {
+            val service = instance ?: return
+            service.mainHandler.post {
+                if (service.gameSurfaceView != null) {
+                    service.attachOverlaysInternal(preferredModeId, targetHz)
+                }
             }
         }
 

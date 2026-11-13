@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.framewise.app.capture.FrameCaptureService
 import com.framewise.app.capture.PipelineSessionState
-import com.framewise.app.device.InterpolationMode
 import com.framewise.app.onboarding.WelcomeOnboardingScreen
 import com.framewise.app.settings.LocaleHelper
 import com.framewise.app.ui.HomeDashboardScreen
@@ -35,12 +34,7 @@ class MainActivity : AppCompatActivity() {
     ) { result ->
         val data = result.data
         if (result.resultCode == Activity.RESULT_OK && data != null) {
-            val mode = viewModel.uiState.value.settings.interpolationMode
-            val presetLabel = when (mode) {
-                InterpolationMode.CONSOLE_30_60 -> "30->60 (1x)"
-                InterpolationMode.COMPETITIVE_60_120 -> "60->120 (1x)"
-                InterpolationMode.STABILIZER_60_CAS -> "60Hz CAS (1x)"
-            }
+            val presetLabel = viewModel.formatPresetLabel()
             viewModel.startCaptureSession(result.resultCode, data, presetLabel)
         }
     }
@@ -100,6 +94,7 @@ class MainActivity : AppCompatActivity() {
                             onToggleAutoPilot = viewModel::setAutoPilotEnabled,
                             onToggleHudMask = viewModel::setHudMaskEnabled,
                             onToggleThermalGuard = viewModel::setThermalGuardEnabled,
+                            onToggleSmartGate = viewModel::setSmartGateEnabled,
                             onToggleStartupUpdateCheck = viewModel::setCheckUpdatesOnStartup,
                             onCheckUpdates = { viewModel.checkForUpdates(forceRefresh = true) },
                             onDownloadUpdate = viewModel::downloadAndVerifyUpdate,

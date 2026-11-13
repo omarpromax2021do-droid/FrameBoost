@@ -3,7 +3,9 @@ package com.framewise.app.capture
 import android.content.Context
 import android.content.Intent
 import android.view.Surface
+import com.framewise.app.device.InterpolationMode
 import com.framewise.app.gpu.GLRenderThread
+import com.framewise.app.gpu.LiveRenderConfig
 import com.framewise.app.gpu.MetricsTracker
 import com.framewise.app.gpu.PipelineMetricsSnapshot
 import kotlinx.coroutines.CoroutineScope
@@ -35,10 +37,10 @@ object PipelineController {
     private var renderThread: GLRenderThread? = null
 
     @Volatile
-    private var activePresetLabel: String = "1x Passthrough"
+    private var currentLiveConfig: LiveRenderConfig = LiveRenderConfig()
 
     @Volatile
-    private var activeTargetHz: Float = 60f
+    private var activePresetLabel: String = "30->60 Console"
 
     @Volatile
     private var activePreferredModeId: Int = 0
@@ -47,6 +49,23 @@ object PipelineController {
     private var pendingWidth: Int = 0
     private var pendingHeight: Int = 0
     private var metricsTickerJob: Job? = null
+
+    @Synchronized
+    fun updateLiveConfig(
+        config: LiveRenderConfig,
+        preferredModeId: Int,
+        presetLabel: String
+    ) {
+        currentLiveConfig = config
+        activePreferredModeId = preferredModeId
+        activePresetLabel = presetLabel
+        renderThread?.updateLiveConfig(config)
+
+        if (renderThread != null) {
+            val surfaceRate = resolveSurfaceFrameRate(config)
+            FrameBoostOverlayService.updateDisplayRate(preferredModeId, surfaceRate)
+        }
+    }
 
     @Synchronized
     fun startRenderPipeline(
@@ -62,16 +81,17 @@ object PipelineController {
         stopRenderPipelineOnly()
 
         activePresetLabel = presetLabel
-        activeTargetHz = targetHz
         activePreferredModeId = preferredModeId
+        currentLiveConfig = currentLiveConfig.copy(targetPanelHz = targetHz)
         metricsTracker.reset()
         _sessionState.value = PipelineSessionState.Starting
 
         val thread = GLRenderThread(
+            context = context.applicationContext,
             initialWidth = captureWidth,
             initialHeight = captureHeight,
             metricsTracker = metricsTracker,
-            activePresetLabel = presetLabel,
+            initialConfig = currentLiveConfig,
             onInputSurfaceReady = { inputSurface ->
                 pendingSurface?.let { surf ->
                     if (surf.isValid && pendingWidth > 0 && pendingHeight > 0) {
@@ -88,7 +108,8 @@ object PipelineController {
         renderThread = thread
         thread.start()
 
-        FrameBoostOverlayService.showOverlays(preferredModeId = preferredModeId, targetHz = targetHz)
+        val surfaceRate = resolveSurfaceFrameRate(currentLiveConfig)
+        FrameBoostOverlayService.showOverlays(preferredModeId = preferredModeId, targetHz = surfaceRate)
 
         metricsTickerJob = scope.launch {
             while (isActive && renderThread != null) {
@@ -148,5 +169,13 @@ object PipelineController {
         pendingSurface = null
         pendingWidth = 0
         pendingHeight = 0
+    }
+
+    private fun resolveSurfaceFrameRate(config: LiveRenderConfig): Float {
+        return when (config.mode) {
+            InterpolationMode.COMPETITIVE_60_120 -> config.targetPanelHz.coerceAtLeast(60f)
+            InterpolationMode.CONSOLE_30_60,
+            InterpolationMode.STABILIZER_60_CAS -> 60f
+        }
     }
 }

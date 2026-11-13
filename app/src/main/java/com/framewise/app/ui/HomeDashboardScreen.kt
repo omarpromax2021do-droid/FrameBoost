@@ -342,12 +342,8 @@ fun HomeDashboardScreen(
                         )
                     }
                     SpecRow(
-                        stringResource(R.string.telemetry_capture_fps),
-                        String.format(Locale.US, "%.1f FPS (%d)", m.captureFps, m.capturedFramesTotal)
-                    )
-                    SpecRow(
-                        stringResource(R.string.telemetry_output_fps),
-                        String.format(Locale.US, "%.1f FPS (%d)", m.outputFps, m.renderedFramesTotal)
+                        stringResource(R.string.telemetry_base_to_output),
+                        String.format(Locale.US, "%.1f -> %.1f FPS", m.captureFps, m.outputFps)
                     )
                     SpecRow(
                         stringResource(R.string.telemetry_frame_time),
@@ -360,6 +356,14 @@ fun HomeDashboardScreen(
                     SpecRow(
                         stringResource(R.string.telemetry_latency),
                         String.format(Locale.US, "%.2f ms", m.pipelineLatencyMs)
+                    )
+                    SpecRow(
+                        stringResource(R.string.telemetry_cas_scale),
+                        "CAS ${m.casSharpnessPercent}% • ${m.effectiveMotionScalePercent}%"
+                    )
+                    SpecRow(
+                        stringResource(R.string.telemetry_smart_gate),
+                        m.smartGateStatus
                     )
                 }
             }

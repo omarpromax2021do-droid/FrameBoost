@@ -1,5 +1,6 @@
 package com.framewise.app.gpu
 
+import android.content.Context
 import android.graphics.SurfaceTexture
 import android.opengl.EGL14
 import android.opengl.EGLConfig
@@ -13,6 +14,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.view.Choreographer
 import android.view.Surface
+import com.framewise.app.device.InterpolationMode
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -20,11 +22,21 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
+data class LiveRenderConfig(
+    val mode: InterpolationMode = InterpolationMode.CONSOLE_30_60,
+    val motionScalePercent: Int = 40,
+    val casSharpness: Float = 0.65f,
+    val hudMaskEnabled: Boolean = true,
+    val smartGateEnabled: Boolean = true,
+    val targetPanelHz: Float = 60f
+)
+
 class GLRenderThread(
+    private val context: Context,
     private val initialWidth: Int,
     private val initialHeight: Int,
     private val metricsTracker: MetricsTracker,
-    private val activePresetLabel: String,
+    initialConfig: LiveRenderConfig,
     private val onInputSurfaceReady: (Surface) -> Unit,
     private val onError: (String) -> Unit
 ) : HandlerThread("FramewiseGLRenderThread"),
@@ -33,6 +45,9 @@ class GLRenderThread(
 
     private lateinit var renderHandler: Handler
     private val running = AtomicBoolean(false)
+
+    @Volatile
+    private var liveConfig: LiveRenderConfig = initialConfig
 
     private var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var eglConfig: EGLConfig? = null
@@ -49,6 +64,7 @@ class GLRenderThread(
     private var inputSurfaceTexture: SurfaceTexture? = null
     private var inputSurface: Surface? = null
     private val pingPongFbos = PingPongFboPair()
+    private val motionFbo = MotionEstimationFbo()
     private val texMatrix = FloatArray(16)
     private var hasCapturedFrame = false
 
@@ -57,9 +73,10 @@ class GLRenderThread(
     private var oesTexUniformLoc: Int = -1
     private var oesMatrixUniformLoc: Int = -1
 
-    private var presentProgramId: Int = 0
-    private var presentPosLoc: Int = -1
-    private var presentTexUniformLoc: Int = -1
+    private var opticalFlowProgram: OpticalFlowShaderProgram? = null
+    private var casSynthesisProgram: CasSynthesisShaderProgram? = null
+    private val framePacer = FramePacer()
+    private val smartGateController = SmartGateController()
 
     private lateinit var quadBuffer: FloatBuffer
 
@@ -83,6 +100,10 @@ class GLRenderThread(
             cleanupInternal()
             quitSafely()
         }
+    }
+
+    fun updateLiveConfig(newConfig: LiveRenderConfig) {
+        liveConfig = newConfig
     }
 
     fun attachOutputSurface(surface: Surface, width: Int, height: Int) {
@@ -130,6 +151,7 @@ class GLRenderThread(
                 captureHeight = safeH
                 inputSurfaceTexture?.setDefaultBufferSize(safeW, safeH)
                 pingPongFbos.ensureAllocated(safeW, safeH)
+                motionFbo.ensureAllocated(safeW, safeH, liveConfig.motionScalePercent)
             }
         }
     }
@@ -167,7 +189,6 @@ class GLRenderThread(
             surfaceTexture.updateTexImage()
             surfaceTexture.getTransformMatrix(texMatrix)
 
-            // Ensure an active GL context before offscreen OES->FBO draw even if windowSurface is detached.
             if (windowSurface == EGL14.EGL_NO_SURFACE && pbufferSurface != EGL14.EGL_NO_SURFACE) {
                 EGL14.eglMakeCurrent(eglDisplay, pbufferSurface, pbufferSurface, eglContext)
             }
@@ -188,6 +209,8 @@ class GLRenderThread(
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
             GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0)
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+
+            framePacer.onNewCaptureFrameArrived()
             hasCapturedFrame = true
         } catch (t: Throwable) {
             onError(t.message ?: "Frame capture GL error")
@@ -198,7 +221,7 @@ class GLRenderThread(
         if (!running.get()) return
 
         if (hasCapturedFrame && windowSurface != EGL14.EGL_NO_SURFACE && pingPongFbos.currTexId != 0) {
-            renderCurrFrameToOverlay(frameTimeNanos)
+            renderPacedFrame(frameTimeNanos)
         }
 
         if (running.get()) {
@@ -206,8 +229,36 @@ class GLRenderThread(
         }
     }
 
-    private fun renderCurrFrameToOverlay(frameTimeNanos: Long) {
+    private fun renderPacedFrame(frameTimeNanos: Long) {
         try {
+            val cfg = liveConfig
+            val nowNs = System.nanoTime()
+            val gate = smartGateController.evaluate(
+                enabled = cfg.smartGateEnabled,
+                requestedMode = cfg.mode,
+                requestedScalePercent = cfg.motionScalePercent,
+                captureFps = metricsTracker.latestRollingCaptureFps(nowNs),
+                gpuPassTimeMs = metricsTracker.latestAverageGpuPassMs(),
+                nowNs = nowNs
+            )
+            val decision = framePacer.evaluateVsyncTick(
+                frameTimeNs = frameTimeNanos,
+                mode = cfg.mode,
+                bypassOpticalFlow = gate.bypassOpticalFlow,
+                panelRefreshHz = cfg.targetPanelHz
+            )
+
+            metricsTracker.updateRuntimeTelemetryState(
+                casSharpnessPercent = (cfg.casSharpness * 100f).toInt().coerceIn(0, 100),
+                effectiveMotionScalePercent = gate.effectiveMotionScalePercent,
+                smartGateStatus = gate.statusReason,
+                isInterpolating = decision.outputType == FrameOutputType.SYNTHESIZED_INTERMEDIATE
+            )
+
+            if (decision.outputType == FrameOutputType.SKIP_TICK) {
+                return
+            }
+
             EGL14.eglMakeCurrent(eglDisplay, windowSurface, windowSurface, eglContext)
 
             val gpuStartNs = if (!supportsDisjointTimerQuery) System.nanoTime() else 0L
@@ -217,21 +268,35 @@ class GLRenderThread(
                 GLES30.glBeginQuery(GL_TIME_ELAPSED_EXT, timerQueryIds[queryIdx])
             }
 
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-            GLES30.glViewport(0, 0, windowWidth, windowHeight)
-            GLES30.glClearColor(0f, 0f, 0f, 0f)
-            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            if (decision.runMotionEstimationPass) {
+                motionFbo.ensureAllocated(captureWidth, captureHeight, gate.effectiveMotionScalePercent)
+                opticalFlowProgram?.execute(
+                    quadBuffer = quadBuffer,
+                    prevTexId = pingPongFbos.prevTexId,
+                    currTexId = pingPongFbos.currTexId,
+                    captureWidth = captureWidth,
+                    captureHeight = captureHeight,
+                    targetMotionFbo = motionFbo
+                )
+            } else if (motionFbo.texId == 0) {
+                motionFbo.ensureAllocated(captureWidth, captureHeight, gate.effectiveMotionScalePercent)
+            }
 
-            GLES30.glUseProgram(presentProgramId)
-            GLES30.glEnableVertexAttribArray(presentPosLoc)
-            quadBuffer.position(0)
-            GLES30.glVertexAttribPointer(presentPosLoc, 2, GLES30.GL_FLOAT, false, 0, quadBuffer)
-
-            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, pingPongFbos.currTexId)
-            GLES30.glUniform1i(presentTexUniformLoc, 0)
-            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+            casSynthesisProgram?.execute(
+                quadBuffer = quadBuffer,
+                prevTexId = pingPongFbos.prevTexId,
+                currTexId = pingPongFbos.currTexId,
+                motionTexId = motionFbo.texId,
+                captureWidth = captureWidth,
+                captureHeight = captureHeight,
+                motionWidth = motionFbo.width,
+                motionHeight = motionFbo.height,
+                outputWidth = windowWidth,
+                outputHeight = windowHeight,
+                interpolationAlpha = decision.interpolationAlpha,
+                casSharpness = cfg.casSharpness,
+                hudMaskEnabled = cfg.hudMaskEnabled
+            )
 
             if (supportsDisjointTimerQuery) {
                 GLES30.glEndQuery(GL_TIME_ELAPSED_EXT)
@@ -242,7 +307,7 @@ class GLRenderThread(
                 lastMeasuredGpuPassMs = (System.nanoTime() - gpuStartNs) / 1_000_000.0
             }
 
-            EGLExt.eglPresentationTimeANDROID(eglDisplay, windowSurface, frameTimeNanos)
+            EGLExt.eglPresentationTimeANDROID(eglDisplay, windowSurface, decision.presentationTimeNs)
             EGL14.eglSwapBuffers(eglDisplay, windowSurface)
 
             val swapDoneNs = System.nanoTime()
@@ -252,7 +317,7 @@ class GLRenderThread(
                 captureSourceNs = metricsTracker.lastCaptureTimestampNs()
             )
         } catch (_: Throwable) {
-            // Transient surface teardown during app switch; handled safely on next VSync.
+            // Transient surface teardown during app transition; handled safely on next VSync.
         }
     }
 
@@ -289,7 +354,6 @@ class GLRenderThread(
         val numConfigs = IntArray(1)
         val ok = EGL14.eglChooseConfig(eglDisplay, configAttribs, 0, configs, 0, 1, numConfigs, 0)
         if (!ok || numConfigs[0] <= 0) {
-            // Fallback to ES2 bit when ES3 bit isn't explicitly advertised in EGLConfig.
             configAttribs[1] = EGL14.EGL_OPENGL_ES2_BIT
             require(
                 EGL14.eglChooseConfig(eglDisplay, configAttribs, 0, configs, 0, 1, numConfigs, 0) &&
@@ -298,7 +362,6 @@ class GLRenderThread(
         }
         eglConfig = configs[0]!!
 
-        // Try OpenGL ES 3.1 context first, fallback to ES 3.0 if minor version attr is unsupported.
         val es31Attribs = intArrayOf(
             EGL14.EGL_CONTEXT_CLIENT_VERSION, 3,
             EGL_CONTEXT_MINOR_VERSION_KHR, 1,
@@ -329,6 +392,7 @@ class GLRenderThread(
     private fun initGlResources() {
         quadBuffer = createQuadBuffer()
         pingPongFbos.ensureAllocated(captureWidth, captureHeight)
+        motionFbo.ensureAllocated(captureWidth, captureHeight, liveConfig.motionScalePercent)
 
         val texIds = IntArray(1)
         GLES30.glGenTextures(1, texIds, 0)
@@ -367,9 +431,8 @@ class GLRenderThread(
         oesTexUniformLoc = GLES30.glGetUniformLocation(oesProgramId, "uExternalTex")
         oesMatrixUniformLoc = GLES30.glGetUniformLocation(oesProgramId, "uTexMatrix")
 
-        presentProgramId = buildPresentProgram()
-        presentPosLoc = GLES30.glGetAttribLocation(presentProgramId, "aPosition")
-        presentTexUniformLoc = GLES30.glGetUniformLocation(presentProgramId, "uFrameTex")
+        opticalFlowProgram = OpticalFlowShaderProgram(context)
+        casSynthesisProgram = CasSynthesisShaderProgram(context)
 
         val extensions = GLES30.glGetString(GLES30.GL_EXTENSIONS).orEmpty()
         supportsDisjointTimerQuery = extensions.contains("GL_EXT_disjoint_timer_query")
@@ -391,6 +454,8 @@ class GLRenderThread(
     }
 
     private fun cleanupInternal() {
+        framePacer.reset()
+        smartGateController.reset()
         if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
             if (pbufferSurface != EGL14.EGL_NO_SURFACE) {
                 EGL14.eglMakeCurrent(eglDisplay, pbufferSurface, pbufferSurface, eglContext)
@@ -399,8 +464,12 @@ class GLRenderThread(
                 GLES30.glDeleteQueries(2, timerQueryIds, 0)
             }
             if (oesProgramId != 0) GLES30.glDeleteProgram(oesProgramId)
-            if (presentProgramId != 0) GLES30.glDeleteProgram(presentProgramId)
+            opticalFlowProgram?.release()
+            opticalFlowProgram = null
+            casSynthesisProgram?.release()
+            casSynthesisProgram = null
             if (oesTextureId != 0) GLES30.glDeleteTextures(1, intArrayOf(oesTextureId), 0)
+            motionFbo.release()
             pingPongFbos.release()
 
             EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
@@ -446,10 +515,9 @@ class GLRenderThread(
             }
         """.trimIndent()
 
-        val essl3Program = tryCompileProgram(essl3Vertex, essl3Fragment)
+        val essl3Program = ShaderUtils.tryCompileProgram(essl3Vertex, essl3Fragment)
         if (essl3Program != 0) return essl3Program
 
-        // Compatibility fallback for devices supporting only ESSL1 external OES sampler.
         val essl1Vertex = """
             attribute vec2 aPosition;
             uniform mat4 uTexMatrix;
@@ -471,73 +539,9 @@ class GLRenderThread(
             }
         """.trimIndent()
 
-        val fallbackProgram = tryCompileProgram(essl1Vertex, essl1Fragment)
+        val fallbackProgram = ShaderUtils.tryCompileProgram(essl1Vertex, essl1Fragment)
         require(fallbackProgram != 0) { "Failed to compile external OES shader program" }
         return fallbackProgram
-    }
-
-    private fun buildPresentProgram(): Int {
-        val vertex = """
-            #version 300 es
-            in vec2 aPosition;
-            out vec2 vUv;
-            void main() {
-                vUv = aPosition * 0.5 + 0.5;
-                gl_Position = vec4(aPosition, 0.0, 1.0);
-            }
-        """.trimIndent()
-
-        val fragment = """
-            #version 300 es
-            precision mediump float;
-            in vec2 vUv;
-            uniform sampler2D uFrameTex;
-            out vec4 fragColor;
-            void main() {
-                fragColor = texture(uFrameTex, vUv);
-            }
-        """.trimIndent()
-
-        val program = tryCompileProgram(vertex, fragment)
-        require(program != 0) { "Failed to compile 1x passthrough shader program" }
-        return program
-    }
-
-    private fun tryCompileProgram(vertexSrc: String, fragmentSrc: String): Int {
-        val vs = compileShader(GLES30.GL_VERTEX_SHADER, vertexSrc)
-        if (vs == 0) return 0
-        val fs = compileShader(GLES30.GL_FRAGMENT_SHADER, fragmentSrc)
-        if (fs == 0) {
-            GLES30.glDeleteShader(vs)
-            return 0
-        }
-        val program = GLES30.glCreateProgram()
-        GLES30.glAttachShader(program, vs)
-        GLES30.glAttachShader(program, fs)
-        GLES30.glLinkProgram(program)
-        GLES30.glDeleteShader(vs)
-        GLES30.glDeleteShader(fs)
-
-        val linkStatus = IntArray(1)
-        GLES30.glGetProgramiv(program, GLES30.GL_LINK_STATUS, linkStatus, 0)
-        if (linkStatus[0] == 0) {
-            GLES30.glDeleteProgram(program)
-            return 0
-        }
-        return program
-    }
-
-    private fun compileShader(type: Int, src: String): Int {
-        val shader = GLES30.glCreateShader(type)
-        GLES30.glShaderSource(shader, src)
-        GLES30.glCompileShader(shader)
-        val compiled = IntArray(1)
-        GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, compiled, 0)
-        if (compiled[0] == 0) {
-            GLES30.glDeleteShader(shader)
-            return 0
-        }
-        return shader
     }
 
     private fun createQuadBuffer(): FloatBuffer {

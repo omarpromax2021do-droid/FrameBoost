@@ -13,6 +13,7 @@ import com.framewise.app.device.DeviceHardwareProfile
 import com.framewise.app.device.GpuCalibrationResult
 import com.framewise.app.device.HardwareProfiler
 import com.framewise.app.device.InterpolationMode
+import com.framewise.app.gpu.LiveRenderConfig
 import com.framewise.app.settings.AppSettings
 import com.framewise.app.settings.LocaleHelper
 import com.framewise.app.settings.SettingsRepository
@@ -72,6 +73,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
                 _uiState.update { it.copy(settings = settings, isLoading = false) }
+                pushLiveRenderConfig(settings)
                 refreshHardwareProfile(settings.lastCalibrationMs)
                 if (!startupUpdateChecked && settings.checkUpdatesOnStartup && settings.onboardingCompleted) {
                     startupUpdateChecked = true
@@ -83,6 +85,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             PipelineController.sessionState.collect { session ->
                 _uiState.update { it.copy(sessionState = session) }
             }
+        }
+    }
+
+    private fun pushLiveRenderConfig(settings: AppSettings) {
+        PipelineController.updateLiveConfig(
+            config = LiveRenderConfig(
+                mode = settings.interpolationMode,
+                motionScalePercent = settings.motionScalePercent,
+                casSharpness = settings.casSharpness,
+                hudMaskEnabled = settings.hudMaskEnabled,
+                smartGateEnabled = settings.smartGateEnabled,
+                targetPanelHz = settings.targetFps.toFloat()
+            ),
+            preferredModeId = settings.preferredDisplayModeId,
+            presetLabel = formatPresetLabel(settings)
+        )
+    }
+
+    fun formatPresetLabel(settings: AppSettings = _uiState.value.settings): String {
+        return when (settings.interpolationMode) {
+            InterpolationMode.CONSOLE_30_60 -> "30->60 Console"
+            InterpolationMode.COMPETITIVE_60_120 -> "60->${settings.targetFps} Competitive"
+            InterpolationMode.STABILIZER_60_CAS -> "60Hz CAS Stabilizer"
         }
     }
 
@@ -164,6 +189,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setThermalGuardEnabled(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setThermalGuardEnabled(enabled) }
+    }
+
+    fun setSmartGateEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setSmartGateEnabled(enabled) }
     }
 
     fun setCheckUpdatesOnStartup(enabled: Boolean) {

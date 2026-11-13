@@ -6,7 +6,11 @@ data class PipelineMetricsSnapshot(
     val frameTimeMs: Float = 0f,
     val gpuPassTimeMs: Float = 0f,
     val pipelineLatencyMs: Float = 0f,
-    val activePreset: String = "1x Passthrough",
+    val activePreset: String = "30->60 Console",
+    val casSharpnessPercent: Int = 65,
+    val effectiveMotionScalePercent: Int = 40,
+    val smartGateStatus: String = "Active",
+    val isInterpolating: Boolean = false,
     val capturedFramesTotal: Long = 0L,
     val renderedFramesTotal: Long = 0L
 )
@@ -25,6 +29,11 @@ class MetricsTracker(
     private var capturedFramesTotal: Long = 0L
     private var renderedFramesTotal: Long = 0L
 
+    private var casSharpnessPercent: Int = 65
+    private var effectiveMotionScalePercent: Int = 40
+    private var smartGateStatus: String = "Active"
+    private var isInterpolating: Boolean = false
+
     fun recordCaptureFrame(arrivalTimeNs: Long) {
         synchronized(lock) {
             pruneOlderThan(captureTimestamps, arrivalTimeNs - rollingWindowNs)
@@ -37,6 +46,33 @@ class MetricsTracker(
     fun lastCaptureTimestampNs(): Long {
         synchronized(lock) {
             return lastCaptureArrivalNs
+        }
+    }
+
+    fun updateRuntimeTelemetryState(
+        casSharpnessPercent: Int,
+        effectiveMotionScalePercent: Int,
+        smartGateStatus: String,
+        isInterpolating: Boolean
+    ) {
+        synchronized(lock) {
+            this.casSharpnessPercent = casSharpnessPercent
+            this.effectiveMotionScalePercent = effectiveMotionScalePercent
+            this.smartGateStatus = smartGateStatus
+            this.isInterpolating = isInterpolating
+        }
+    }
+
+    fun latestRollingCaptureFps(nowNs: Long): Float {
+        synchronized(lock) {
+            pruneOlderThan(captureTimestamps, nowNs - rollingWindowNs)
+            return computeFps(captureTimestamps)
+        }
+    }
+
+    fun latestAverageGpuPassMs(): Float {
+        synchronized(lock) {
+            return if (gpuPassSamplesMs.isEmpty()) 0f else gpuPassSamplesMs.average().toFloat()
         }
     }
 
@@ -89,6 +125,10 @@ class MetricsTracker(
                 gpuPassTimeMs = avgGpuMs.toFloat(),
                 pipelineLatencyMs = avgLatencyMs.toFloat(),
                 activePreset = activePreset,
+                casSharpnessPercent = casSharpnessPercent,
+                effectiveMotionScalePercent = effectiveMotionScalePercent,
+                smartGateStatus = smartGateStatus,
+                isInterpolating = isInterpolating,
                 capturedFramesTotal = capturedFramesTotal,
                 renderedFramesTotal = renderedFramesTotal
             )
@@ -105,6 +145,8 @@ class MetricsTracker(
             lastFrameTimeMs = 0.0
             capturedFramesTotal = 0L
             renderedFramesTotal = 0L
+            isInterpolating = false
+            smartGateStatus = "Active"
         }
     }
 
