@@ -3,6 +3,9 @@ package com.framewise.app.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -19,14 +22,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -42,16 +49,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.framewise.app.CalibrationUiState
 import com.framewise.app.MainUiState
 import com.framewise.app.R
 import com.framewise.app.UpdaterUiState
+import com.framewise.app.capture.FrameBoostOverlayService
+import com.framewise.app.capture.PipelineSessionState
 import com.framewise.app.device.InterpolationMode
 import com.framewise.app.ui.theme.FramewiseColors
 import com.framewise.app.updater.ReleaseInfo
@@ -65,6 +82,7 @@ fun HomeDashboardScreen(
     onOpenSettings: () -> Unit,
     onToggleLanguage: () -> Unit,
     onSelectMode: (InterpolationMode) -> Unit,
+    onToggleSession: () -> Unit,
     onRunCalibration: () -> Unit,
     onBuildReport: () -> String?,
     onDownloadUpdate: (ReleaseInfo) -> Unit,
@@ -72,10 +90,28 @@ fun HomeDashboardScreen(
     onGrantInstallPerm: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val profile = uiState.hardwareProfile
     val settings = uiState.settings
     val allowedFps = profile?.allowedTargetFpsOptions() ?: listOf(60)
     val supportsHighRefresh = allowedFps.any { it >= 90 }
+
+    var accessibilityEnabled by remember {
+        mutableStateOf(FrameBoostOverlayService.isServiceEnabled(context))
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                accessibilityEnabled = FrameBoostOverlayService.isServiceEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val isSessionActive = uiState.sessionState is PipelineSessionState.Running ||
+        uiState.sessionState is PipelineSessionState.Starting
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -202,10 +238,24 @@ fun HomeDashboardScreen(
                 )
 
                 Text(
-                    text = stringResource(R.string.quick_start_phase1_note),
+                    text = stringResource(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                            R.string.capture_ready_note
+                        } else {
+                            R.string.capture_pre_u_note
+                        }
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                if (uiState.sessionState is PipelineSessionState.Error) {
+                    Text(
+                        text = uiState.sessionState.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
 
                 if (uiState.calibrationState is CalibrationUiState.Running) {
                     LinearProgressIndicator(
@@ -221,23 +271,96 @@ fun HomeDashboardScreen(
                 ) {
                     Button(
                         onClick = {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.quick_start_phase1_note),
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            if (isSessionActive) {
+                                onToggleSession()
+                            } else if (!accessibilityEnabled) {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.accessibility_required_msg),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                runCatching {
+                                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                }
+                            } else {
+                                onToggleSession()
+                            }
+                        },
+                        colors = if (isSessionActive) {
+                            ButtonDefaults.buttonColors(
+                                containerColor = FramewiseColors.CoralError,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        } else {
+                            ButtonDefaults.buttonColors()
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(imageVector = Icons.Rounded.PlayArrow, contentDescription = null)
-                        Text(text = stringResource(R.string.btn_quick_start))
+                        Icon(
+                            imageVector = when {
+                                isSessionActive -> Icons.Rounded.Stop
+                                !accessibilityEnabled -> Icons.Rounded.AccessibilityNew
+                                else -> Icons.Rounded.PlayArrow
+                            },
+                            contentDescription = null
+                        )
+                        Text(
+                            text = stringResource(
+                                when {
+                                    isSessionActive -> R.string.btn_stop_frameboost
+                                    !accessibilityEnabled -> R.string.btn_enable_accessibility
+                                    else -> R.string.btn_start_frameboost
+                                }
+                            )
+                        )
                     }
                     OutlinedButton(
                         onClick = onRunCalibration,
-                        enabled = uiState.calibrationState !is CalibrationUiState.Running
+                        enabled = uiState.calibrationState !is CalibrationUiState.Running && !isSessionActive
                     ) {
                         Text(text = stringResource(R.string.btn_calibrate_now))
                     }
+                }
+            }
+
+            if (uiState.sessionState is PipelineSessionState.Running) {
+                val m = uiState.sessionState.metrics
+                FramewiseCard(borderColor = FramewiseColors.ElectricEmerald.copy(alpha = 0.65f)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Speed,
+                            contentDescription = null,
+                            tint = FramewiseColors.ElectricEmerald
+                        )
+                        Text(
+                            text = stringResource(R.string.live_telemetry_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = FramewiseColors.ElectricEmerald
+                        )
+                    }
+                    SpecRow(
+                        stringResource(R.string.telemetry_capture_fps),
+                        String.format(Locale.US, "%.1f FPS (%d)", m.captureFps, m.capturedFramesTotal)
+                    )
+                    SpecRow(
+                        stringResource(R.string.telemetry_output_fps),
+                        String.format(Locale.US, "%.1f FPS (%d)", m.outputFps, m.renderedFramesTotal)
+                    )
+                    SpecRow(
+                        stringResource(R.string.telemetry_frame_time),
+                        String.format(Locale.US, "%.2f ms", m.frameTimeMs)
+                    )
+                    SpecRow(
+                        stringResource(R.string.telemetry_gpu_pass),
+                        String.format(Locale.US, "%.2f ms", m.gpuPassTimeMs)
+                    )
+                    SpecRow(
+                        stringResource(R.string.telemetry_latency),
+                        String.format(Locale.US, "%.2f ms", m.pipelineLatencyMs)
+                    )
                 }
             }
 

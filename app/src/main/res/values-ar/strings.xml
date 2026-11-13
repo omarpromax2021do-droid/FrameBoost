@@ -131,4 +131,22 @@
     <string name="settings_section_tools">المعايرة والدليل</string>
     <string name="btn_rerun_calibration">إعادة معايرة GPU (3 ثوانٍ)</string>
     <string name="btn_reopen_onboarding">فتح شاشة الترحيب</string>
+
+    <!-- Phase 2: Capture & Touch-Passthrough Overlay -->
+    <string name="accessibility_service_desc">يوفر طبقة رسم OpenGL ES تمرر اللمس بالكامل وكشف الألعاب التلقائي دون قراءة محتوى النوافذ.</string>
+    <string name="capture_channel_name">التقاط Framewise عبر GPU</string>
+    <string name="capture_notification_text">مسار معالجة GPU الصفري نشط الآن</string>
+    <string name="hud_stop">إيقاف</string>
+    <string name="btn_start_frameboost">تشغيل FrameBoost</string>
+    <string name="btn_stop_frameboost">إيقاف FrameBoost</string>
+    <string name="btn_enable_accessibility">تفعيل طبقة إمكانية الوصول</string>
+    <string name="accessibility_required_msg">فعّل Framewise في إعدادات إمكانية الوصول أولاً لضمان تمرير اللمس بدون حجب.</string>
+    <string name="live_telemetry_title">القياسات الحقيقية المباشرة (تمرير 1x)</string>
+    <string name="capture_ready_note">المرحلة 2 نشطة: التقاط صفري OES إلى ذاكرة GPU FBO مع عداد القياسات العائم.</string>
+    <string name="capture_pre_u_note">أندرويد 8–13 يستخدم التقاط الشاشة الكاملة؛ تجنب تصوير نافذة Framewise نفسها لمنع التكرار المرئي.</string>
+    <string name="telemetry_capture_fps">معدل الالتقاط (FPS)</string>
+    <string name="telemetry_output_fps">معدل العرض (FPS)</string>
+    <string name="telemetry_frame_time">زمن الإطار</string>
+    <string name="telemetry_gpu_pass">زمن مظلل GPU</string>
+    <string name="telemetry_latency">زمن الاستجابة الكلي</string>
 </resources>

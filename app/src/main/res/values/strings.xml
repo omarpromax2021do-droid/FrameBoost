@@ -131,4 +131,22 @@
     <string name="settings_section_tools">Calibration &amp; Onboarding</string>
     <string name="btn_rerun_calibration">Re-run 3s GPU Calibration</string>
     <string name="btn_reopen_onboarding">Open Welcome Guide</string>
+
+    <!-- Phase 2: Capture & Touch-Passthrough Overlay -->
+    <string name="accessibility_service_desc">Provides touch-passthrough OpenGL ES overlay rendering and Auto-Pilot foreground game detection without reading screen text.</string>
+    <string name="capture_channel_name">Framewise GPU Capture</string>
+    <string name="capture_notification_text">Zero-copy GPU frame pipeline active</string>
+    <string name="hud_stop">STOP</string>
+    <string name="btn_start_frameboost">Start FrameBoost</string>
+    <string name="btn_stop_frameboost">Stop FrameBoost</string>
+    <string name="btn_enable_accessibility">Enable Accessibility Overlay</string>
+    <string name="accessibility_required_msg">Enable Framewise in Accessibility Settings first for zero-block touch passthrough.</string>
+    <string name="live_telemetry_title">Live Hardware Telemetry (1x Passthrough)</string>
+    <string name="capture_ready_note">Phase 2 Active: Zero-copy OES → GPU FBO passthrough &amp; floating telemetry HUD ready.</string>
+    <string name="capture_pre_u_note">Android 8–13 uses full-screen capture; avoid capturing the Framewise window directly to prevent visual echo.</string>
+    <string name="telemetry_capture_fps">Capture FPS</string>
+    <string name="telemetry_output_fps">Output FPS</string>
+    <string name="telemetry_frame_time">Frame Time</string>
+    <string name="telemetry_gpu_pass">GPU Shader Pass</string>
+    <string name="telemetry_latency">Pipeline Latency</string>
 </resources>

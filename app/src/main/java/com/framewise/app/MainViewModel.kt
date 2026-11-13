@@ -1,8 +1,14 @@
 package com.framewise.app
 
 import android.app.Application
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.framewise.app.capture.FrameCaptureService
+import com.framewise.app.capture.MediaProjectionTokenStore
+import com.framewise.app.capture.PipelineController
+import com.framewise.app.capture.PipelineSessionState
 import com.framewise.app.device.DeviceHardwareProfile
 import com.framewise.app.device.GpuCalibrationResult
 import com.framewise.app.device.HardwareProfiler
@@ -47,6 +53,7 @@ data class MainUiState(
     val hardwareProfile: DeviceHardwareProfile? = null,
     val calibrationState: CalibrationUiState = CalibrationUiState.Idle,
     val updaterState: UpdaterUiState = UpdaterUiState.Idle,
+    val sessionState: PipelineSessionState = PipelineSessionState.Idle,
     val isLoading: Boolean = true
 )
 
@@ -70,6 +77,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     startupUpdateChecked = true
                     checkForUpdates(forceRefresh = false)
                 }
+            }
+        }
+        viewModelScope.launch {
+            PipelineController.sessionState.collect { session ->
+                _uiState.update { it.copy(sessionState = session) }
             }
         }
     }
@@ -250,5 +262,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun currentSettingsSnapshot(): AppSettings {
         return settingsRepository.settingsFlow.first()
+    }
+
+    fun startCaptureSession(resultCode: Int, data: Intent, presetLabel: String) {
+        val app = getApplication<Application>()
+        val settings = _uiState.value.settings
+        MediaProjectionTokenStore.store(resultCode, data)
+        val intent = Intent(app, FrameCaptureService::class.java).apply {
+            action = FrameCaptureService.ACTION_START
+            putExtra(FrameCaptureService.EXTRA_TARGET_HZ, settings.targetFps.toFloat())
+            putExtra(FrameCaptureService.EXTRA_PREFERRED_MODE_ID, settings.preferredDisplayModeId)
+            putExtra(FrameCaptureService.EXTRA_PRESET_LABEL, presetLabel)
+        }
+        ContextCompat.startForegroundService(app, intent)
+    }
+
+    fun stopCaptureSession() {
+        PipelineController.stopSession(getApplication())
     }
 }

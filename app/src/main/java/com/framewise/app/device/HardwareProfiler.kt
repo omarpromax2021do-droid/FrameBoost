@@ -45,7 +45,10 @@ class HardwareProfiler(private val context: Context) {
             DeviceHardwareProfile(
                 deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
                 socModel = detectSocModel(),
-                androidVersion = Build.VERSION.RELEASE ?: "Unknown",
+                androidVersion = HardwareTierClassifier.resolveAndroidVersionLabel(
+                    sdkInt = Build.VERSION.SDK_INT,
+                    releaseOrCodename = Build.VERSION.RELEASE
+                ),
                 sdkInt = Build.VERSION.SDK_INT,
                 glVendor = gpuInfo.vendor,
                 glRenderer = gpuInfo.renderer,

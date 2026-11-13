@@ -123,6 +123,26 @@ object HardwareTierClassifier {
         return match?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
     }
 
+    fun resolveAndroidVersionLabel(sdkInt: Int, releaseOrCodename: String? = null): String {
+        return when {
+            sdkInt >= 38 -> "Android ${sdkInt - 20} (Future/17+)"
+            sdkInt == 37 -> "Android 17"
+            sdkInt == 36 -> "Android 16"
+            sdkInt == 35 -> "Android 15"
+            sdkInt == 34 -> "Android 14"
+            sdkInt == 33 -> "Android 13"
+            sdkInt == 32 -> "Android 12L"
+            sdkInt == 31 -> "Android 12"
+            sdkInt == 30 -> "Android 11"
+            sdkInt == 29 -> "Android 10"
+            sdkInt == 28 -> "Android 9"
+            sdkInt == 27 -> "Android 8.1"
+            sdkInt == 26 -> "Android 8.0"
+            !releaseOrCodename.isNullOrBlank() -> "Android $releaseOrCodename (API $sdkInt)"
+            else -> "Android (API $sdkInt)"
+        }
+    }
+
     fun estimateMaxFps(avgPassMs: Double): Int {
         if (avgPassMs <= 0.05) return 240
         return (1000.0 / avgPassMs).toInt().coerceIn(1, 240)

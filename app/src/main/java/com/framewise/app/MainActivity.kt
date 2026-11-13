@@ -1,7 +1,9 @@
 package com.framewise.app
 
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Box
@@ -15,6 +17,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.framewise.app.capture.FrameCaptureService
+import com.framewise.app.capture.PipelineSessionState
+import com.framewise.app.device.InterpolationMode
 import com.framewise.app.onboarding.WelcomeOnboardingScreen
 import com.framewise.app.settings.LocaleHelper
 import com.framewise.app.ui.HomeDashboardScreen
@@ -24,6 +29,21 @@ import com.framewise.app.ui.theme.FramewiseTheme
 class MainActivity : AppCompatActivity() {
 
     private val viewModel: MainViewModel by viewModels()
+
+    private val mediaProjectionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            val mode = viewModel.uiState.value.settings.interpolationMode
+            val presetLabel = when (mode) {
+                InterpolationMode.CONSOLE_30_60 -> "30->60 (1x)"
+                InterpolationMode.COMPETITIVE_60_120 -> "60->120 (1x)"
+                InterpolationMode.STABILIZER_60_CAS -> "60Hz CAS (1x)"
+            }
+            viewModel.startCaptureSession(result.resultCode, data, presetLabel)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -99,6 +119,16 @@ class MainActivity : AppCompatActivity() {
                             onOpenSettings = { showSettings = true },
                             onToggleLanguage = viewModel::toggleLanguage,
                             onSelectMode = viewModel::setInterpolationMode,
+                            onToggleSession = {
+                                val current = uiState.sessionState
+                                if (current is PipelineSessionState.Running || current is PipelineSessionState.Starting) {
+                                    viewModel.stopCaptureSession()
+                                } else {
+                                    mediaProjectionLauncher.launch(
+                                        FrameCaptureService.createCaptureConsentIntent(this@MainActivity)
+                                    )
+                                }
+                            },
                             onRunCalibration = viewModel::runGpuCalibration,
                             onBuildReport = viewModel::buildCompatibilityReport,
                             onDownloadUpdate = viewModel::downloadAndVerifyUpdate,

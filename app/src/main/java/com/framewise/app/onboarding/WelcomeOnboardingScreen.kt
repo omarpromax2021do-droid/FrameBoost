@@ -23,13 +23,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ScreenShare
 import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.NotificationsActive
-import androidx.compose.material.icons.rounded.ScreenShare
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
@@ -266,12 +266,17 @@ private fun StepPermissionsContent() {
 
     var notificationsGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
     var batteryUnrestricted by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+    var accessibilityEnabled by remember {
+        mutableStateOf(com.framewise.app.capture.FrameBoostOverlayService.isServiceEnabled(context))
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 notificationsGranted = hasNotificationPermission(context)
                 batteryUnrestricted = isIgnoringBatteryOptimizations(context)
+                accessibilityEnabled =
+                    com.framewise.app.capture.FrameBoostOverlayService.isServiceEnabled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -295,7 +300,7 @@ private fun StepPermissionsContent() {
     )
 
     PermissionSetupCard(
-        icon = Icons.Rounded.ScreenShare,
+        icon = Icons.AutoMirrored.Rounded.ScreenShare,
         title = stringResource(R.string.perm_capture_title),
         description = stringResource(R.string.perm_capture_desc),
         isReady = false,
@@ -307,8 +312,8 @@ private fun StepPermissionsContent() {
         icon = Icons.Rounded.AccessibilityNew,
         title = stringResource(R.string.perm_accessibility_title),
         description = stringResource(R.string.perm_accessibility_desc),
-        isReady = false,
-        actionLabel = stringResource(R.string.btn_grant),
+        isReady = accessibilityEnabled,
+        actionLabel = stringResource(if (accessibilityEnabled) R.string.btn_granted else R.string.btn_grant),
         onAction = {
             runCatching {
                 context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
