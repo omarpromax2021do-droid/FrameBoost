@@ -25,7 +25,8 @@ class SmartGateController(
         requestedScalePercent: Int,
         captureFps: Float,
         gpuPassTimeMs: Float,
-        nowNs: Long
+        nowNs: Long,
+        minCaptureFpsOverride: Float? = null
     ): SmartGateDecision {
         val normalizedRequested = normalizeScale(requestedScalePercent)
         if (normalizedRequested != lastRequestedScale) {
@@ -54,7 +55,7 @@ class SmartGateController(
             )
         }
 
-        val minCaptureFps = if (requestedMode == InterpolationMode.CONSOLE_30_60) 24f else 40f
+        val minCaptureFps = minCaptureFpsOverride ?: if (requestedMode == InterpolationMode.CONSOLE_30_60) 24f else 40f
         val maxGpuBudgetMs = if (requestedMode == InterpolationMode.CONSOLE_30_60) 10.0f else 5.5f
 
         val isLowFps = captureFps > 0f && captureFps < minCaptureFps

@@ -155,4 +155,53 @@
     <string name="telemetry_base_to_output">Base → Output FPS</string>
     <string name="telemetry_cas_scale">CAS &amp; Motion Scale</string>
     <string name="telemetry_smart_gate">SmartGate Status</string>
+
+    <!-- Phase 4: Auto-Pilot, HUD Editor, RAM Booster, Thermal Guard & Benchmark -->
+    <string name="capture_phase4_note">Phase 4 Ready: Optical Flow + AMD CAS + Auto-Pilot (CODM/RDR1) + RAM Optimizer + Thermal Guard.</string>
+    <string name="btn_open_benchmark">Split-Screen Benchmark</string>
+    <string name="btn_boost_ram">Boost RAM &amp; Clean Cache</string>
+    <string name="btn_boost_launch">Boost &amp; Launch</string>
+    <string name="btn_add_custom_game">Add Custom Game</string>
+    <string name="btn_edit_hud_zones">Edit HUD Zones</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_reset_defaults">Defaults</string>
+    <string name="btn_remove">Remove</string>
+
+    <string name="boost_toast_format">Freed %1$d MB RAM (%2$d MB free) • GameMode: %3$s</string>
+    <string name="autopilot_toast_format">Auto-Pilot: %1$s • Freed %2$d MB RAM • GameMode: %3$s</string>
+    <string name="autopilot_active_profile">Foreground Auto-Pilot: %1$s (%2$s)</string>
+    <string name="autopilot_custom_games_title">Custom Game Profiles</string>
+
+    <string name="ram_thermal_title">System Optimizer &amp; Thermal Guard</string>
+    <string name="gamemode_label">System GameMode</string>
+    <string name="last_boost_label">Last RAM Cleanup</string>
+    <string name="last_boost_value">%1$d MB freed (%2$d processes) • %3$d MB free</string>
+    <string name="thermal_status_label">Thermal Guard Status</string>
+    <string name="thermal_normal_format">Normal (%1$.1f°C • %2$s)</string>
+    <string name="thermal_throttled_format">Throttled: %1$s (%2$.1f°C)</string>
+
+    <string name="hud_editor_title">HUD Protection Zone Editor</string>
+    <string name="hud_zone_crosshair">Protect Center Crosshair</string>
+    <string name="hud_zone_crosshair_size">Crosshair Box Size</string>
+    <string name="hud_zone_minimap">Protect Top-Left Minimap</string>
+    <string name="hud_zone_minimap_size">Minimap Width × Height</string>
+    <string name="hud_zone_left_controls">Protect Left Joystick Zone</string>
+    <string name="hud_zone_right_controls">Protect Right Aim/Fire Zone</string>
+    <string name="hud_zone_controls_height">Bottom Controls Height</string>
+
+    <string name="picker_title">Pick Installed Game / App</string>
+    <string name="picker_configure_title">Configure Game Profile</string>
+    <string name="picker_search_hint">Search app name or package…</string>
+
+    <string name="benchmark_title">Split-Screen Visual Benchmark</string>
+    <string name="benchmark_top_label">TOP: RAW BASELINE (UNSHARPENED)</string>
+    <string name="benchmark_bottom_label">BOTTOM: FRAMEWISE INTERPOLATED + AMD CAS</string>
+    <string name="benchmark_live_metrics">Real Hardware Benchmark Telemetry</string>
+    <string name="benchmark_base_fps">Base Scene Rate (Top)</string>
+    <string name="benchmark_output_fps">Output VSync Rate (Bottom)</string>
+    <string name="benchmark_controls">Benchmark Parameters</string>
+    <string name="btn_export_markdown">Copy Markdown</string>
+    <string name="btn_export_json">Export JSON</string>
+    <string name="benchmark_copied_msg">Benchmark report copied to clipboard</string>
 </resources>

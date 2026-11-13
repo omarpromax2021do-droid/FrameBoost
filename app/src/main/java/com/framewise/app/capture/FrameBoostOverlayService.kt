@@ -27,6 +27,7 @@ import android.view.accessibility.AccessibilityManager
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.framewise.app.R
+import com.framewise.app.autopilot.AutoPilotManager
 import java.util.Locale
 import kotlin.math.abs
 
@@ -41,6 +42,7 @@ class FrameBoostOverlayService : AccessibilityService() {
     private var hudContainer: LinearLayout? = null
     private var hudLayoutParams: WindowManager.LayoutParams? = null
     private var hudMetricsView: TextView? = null
+    private var hudThermalBadgeView: TextView? = null
     private var hudExpanded = true
 
     private var currentPreferredModeId: Int = 0
@@ -68,8 +70,9 @@ class FrameBoostOverlayService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString()
-            if (!pkg.isNullOrBlank()) {
+            if (!AutoPilotManager.isIgnoredPackage(pkg, packageName) && !pkg.isNullOrBlank()) {
                 lastForegroundPackage = pkg
+                PipelineController.onForegroundPackageDetected(applicationContext, pkg)
             }
         }
     }
@@ -238,6 +241,14 @@ class FrameBoostOverlayService : AccessibilityService() {
             setPadding(0, dp(4), 0, 0)
         }
 
+        val thermalBadgeView = TextView(this).apply {
+            setTextColor(Color.parseColor("#FFB300"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dp(3), 0, 0)
+            visibility = View.GONE
+        }
+
         collapseView.setOnClickListener {
             hudExpanded = !hudExpanded
             metricsText.visibility = if (hudExpanded) View.VISIBLE else View.GONE
@@ -245,6 +256,7 @@ class FrameBoostOverlayService : AccessibilityService() {
         }
 
         root.addView(headerRow)
+        root.addView(thermalBadgeView)
         root.addView(metricsText)
 
         val params = WindowManager.LayoutParams(
@@ -306,6 +318,7 @@ class FrameBoostOverlayService : AccessibilityService() {
         hudContainer = root
         hudLayoutParams = params
         hudMetricsView = metricsText
+        hudThermalBadgeView = thermalBadgeView
 
         updateHudText()
         mainHandler.removeCallbacks(hudUpdateRunnable)
@@ -315,6 +328,14 @@ class FrameBoostOverlayService : AccessibilityService() {
     private fun updateHudText() {
         val tv = hudMetricsView ?: return
         val m = PipelineController.latestMetricsSnapshot()
+        hudThermalBadgeView?.let { badge ->
+            if (!m.thermalBadge.isNullOrBlank()) {
+                badge.text = m.thermalBadge
+                badge.visibility = View.VISIBLE
+            } else {
+                badge.visibility = View.GONE
+            }
+        }
         tv.text = String.format(
             Locale.US,
             "%s\n%.1f -> %.1f FPS | FT %.1fms\nGPU %.2fms | LAT %.1fms\nCAS %d%% | Scale %d%%\n%s",
@@ -342,6 +363,7 @@ class FrameBoostOverlayService : AccessibilityService() {
         hudContainer = null
         hudLayoutParams = null
         hudMetricsView = null
+        hudThermalBadgeView = null
         gameSurfaceView = null
         gameLayoutParams = null
     }

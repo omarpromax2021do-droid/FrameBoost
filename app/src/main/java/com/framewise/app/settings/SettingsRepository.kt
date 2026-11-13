@@ -10,6 +10,9 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.framewise.app.autopilot.GameProfile
+import com.framewise.app.autopilot.GameProfileRepository
+import com.framewise.app.autopilot.HudProtectionZonesConfig
 import com.framewise.app.device.GpuCalibrationResult
 import com.framewise.app.device.HardwareTier
 import com.framewise.app.device.InterpolationMode
@@ -37,6 +40,8 @@ class SettingsRepository(private val context: Context) {
         val HARDWARE_TIER = stringPreferencesKey("hardware_tier")
         val CACHED_RELEASE_ETAG = stringPreferencesKey("cached_release_etag")
         val CACHED_RELEASE_JSON = stringPreferencesKey("cached_release_json")
+        val HUD_ZONES_JSON = stringPreferencesKey("hud_zones_json")
+        val CUSTOM_GAMES_JSON = stringPreferencesKey("custom_games_json")
     }
 
     val settingsFlow: Flow<AppSettings> = context.framewiseDataStore.data.map { prefs ->
@@ -60,7 +65,9 @@ class SettingsRepository(private val context: Context) {
                 ?.let { runCatching { HardwareTier.valueOf(it) }.getOrNull() }
                 ?: HardwareTier.MID_RANGE_120HZ,
             cachedReleaseEtag = prefs[Keys.CACHED_RELEASE_ETAG],
-            cachedReleaseJson = prefs[Keys.CACHED_RELEASE_JSON]
+            cachedReleaseJson = prefs[Keys.CACHED_RELEASE_JSON],
+            hudZones = HudProtectionZonesConfig.fromJson(prefs[Keys.HUD_ZONES_JSON]),
+            customProfiles = GameProfileRepository.customProfilesFromJson(prefs[Keys.CUSTOM_GAMES_JSON])
         )
     }
 
@@ -114,6 +121,50 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setCheckUpdatesOnStartup(enabled: Boolean) {
         context.framewiseDataStore.edit { it[Keys.CHECK_UPDATES_ON_STARTUP] = enabled }
+    }
+
+    suspend fun setHudZones(config: HudProtectionZonesConfig) {
+        val json = HudProtectionZonesConfig.toJson(config)
+        context.framewiseDataStore.edit { it[Keys.HUD_ZONES_JSON] = json }
+    }
+
+    suspend fun upsertCustomGameProfile(profile: GameProfile) {
+        context.framewiseDataStore.edit { prefs ->
+            val current = GameProfileRepository.customProfilesFromJson(prefs[Keys.CUSTOM_GAMES_JSON])
+                .filterNot { it.packageName == profile.packageName }
+                .toMutableList()
+            current.add(profile)
+            prefs[Keys.CUSTOM_GAMES_JSON] = GameProfileRepository.customProfilesToJson(current)
+        }
+    }
+
+    suspend fun removeCustomGameProfile(packageName: String) {
+        context.framewiseDataStore.edit { prefs ->
+            val updated = GameProfileRepository.customProfilesFromJson(prefs[Keys.CUSTOM_GAMES_JSON])
+                .filterNot { it.packageName == packageName }
+            prefs[Keys.CUSTOM_GAMES_JSON] = GameProfileRepository.customProfilesToJson(updated)
+        }
+    }
+
+    suspend fun applyAutoPilotProfile(
+        mode: InterpolationMode,
+        motionScalePercent: Int,
+        casSharpness: Float,
+        targetFps: Int,
+        preferredModeId: Int,
+        hudMaskEnabled: Boolean
+    ) {
+        context.framewiseDataStore.edit {
+            it[Keys.INTERPOLATION_MODE] = mode.name
+            it[Keys.MOTION_SCALE_PERCENT] = when (motionScalePercent) {
+                25, 40, 60 -> motionScalePercent
+                else -> 40
+            }
+            it[Keys.CAS_SHARPNESS] = casSharpness.coerceIn(0f, 1f)
+            it[Keys.TARGET_FPS] = targetFps
+            it[Keys.PREFERRED_DISPLAY_MODE_ID] = preferredModeId
+            it[Keys.HUD_MASK_ENABLED] = hudMaskEnabled
+        }
     }
 
     suspend fun applyCalibrationResult(result: GpuCalibrationResult, preferredModeId: Int) {

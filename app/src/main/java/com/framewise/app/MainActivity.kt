@@ -17,11 +17,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.framewise.app.benchmark.BenchmarkScreen
 import com.framewise.app.capture.FrameCaptureService
 import com.framewise.app.capture.PipelineSessionState
 import com.framewise.app.onboarding.WelcomeOnboardingScreen
 import com.framewise.app.settings.LocaleHelper
 import com.framewise.app.ui.HomeDashboardScreen
+import com.framewise.app.ui.HudZoneEditorDialog
+import com.framewise.app.ui.InstalledAppsPickerDialog
 import com.framewise.app.ui.SettingsScreen
 import com.framewise.app.ui.theme.FramewiseTheme
 
@@ -45,6 +48,11 @@ class MainActivity : AppCompatActivity() {
         setContent {
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
             var showSettings by rememberSaveable { mutableStateOf(false) }
+            var showBenchmark by rememberSaveable { mutableStateOf(false) }
+            var showHudEditor by rememberSaveable { mutableStateOf(false) }
+            var showAppsPicker by rememberSaveable { mutableStateOf(false) }
+            val supportsHighRefresh = (uiState.hardwareProfile?.allowedTargetFpsOptions() ?: listOf(60))
+                .any { it >= 90 }
 
             LaunchedEffect(uiState.settings.languageTag) {
                 if (!uiState.isLoading) {
@@ -83,6 +91,13 @@ class MainActivity : AppCompatActivity() {
                         )
                     }
 
+                    showBenchmark -> {
+                        BenchmarkScreen(
+                            uiState = uiState,
+                            onNavigateBack = { showBenchmark = false }
+                        )
+                    }
+
                     showSettings -> {
                         SettingsScreen(
                             uiState = uiState,
@@ -96,6 +111,8 @@ class MainActivity : AppCompatActivity() {
                             onToggleThermalGuard = viewModel::setThermalGuardEnabled,
                             onToggleSmartGate = viewModel::setSmartGateEnabled,
                             onToggleStartupUpdateCheck = viewModel::setCheckUpdatesOnStartup,
+                            onOpenHudEditor = { showHudEditor = true },
+                            onOpenBenchmark = { showBenchmark = true },
                             onCheckUpdates = { viewModel.checkForUpdates(forceRefresh = true) },
                             onDownloadUpdate = viewModel::downloadAndVerifyUpdate,
                             onInstallUpdate = viewModel::installVerifiedUpdate,
@@ -112,6 +129,11 @@ class MainActivity : AppCompatActivity() {
                         HomeDashboardScreen(
                             uiState = uiState,
                             onOpenSettings = { showSettings = true },
+                            onOpenBenchmark = { showBenchmark = true },
+                            onOpenHudEditor = { showHudEditor = true },
+                            onOpenAppsPicker = { showAppsPicker = true },
+                            onBoostMemory = { pkg -> viewModel.boostMemoryAndOptionallyLaunch(pkg) },
+                            onRemoveCustomGame = viewModel::removeCustomGameProfile,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onSelectMode = viewModel::setInterpolationMode,
                             onToggleSession = {
@@ -131,6 +153,28 @@ class MainActivity : AppCompatActivity() {
                             onGrantInstallPerm = viewModel::openInstallPermissionSettings
                         )
                     }
+                }
+
+                if (showHudEditor) {
+                    HudZoneEditorDialog(
+                        initialConfig = uiState.settings.hudZones,
+                        onDismiss = { showHudEditor = false },
+                        onSave = { config ->
+                            viewModel.setHudZones(config)
+                            showHudEditor = false
+                        }
+                    )
+                }
+
+                if (showAppsPicker) {
+                    InstalledAppsPickerDialog(
+                        supportsHighRefresh = supportsHighRefresh,
+                        onDismiss = { showAppsPicker = false },
+                        onSaveProfile = { profile ->
+                            viewModel.saveCustomGameProfile(profile)
+                            showAppsPicker = false
+                        }
+                    )
                 }
             }
         }

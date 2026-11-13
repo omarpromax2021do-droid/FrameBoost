@@ -10,6 +10,7 @@ data class PipelineMetricsSnapshot(
     val casSharpnessPercent: Int = 65,
     val effectiveMotionScalePercent: Int = 40,
     val smartGateStatus: String = "Active",
+    val thermalBadge: String? = null,
     val isInterpolating: Boolean = false,
     val capturedFramesTotal: Long = 0L,
     val renderedFramesTotal: Long = 0L
@@ -32,6 +33,7 @@ class MetricsTracker(
     private var casSharpnessPercent: Int = 65
     private var effectiveMotionScalePercent: Int = 40
     private var smartGateStatus: String = "Active"
+    private var thermalBadge: String? = null
     private var isInterpolating: Boolean = false
 
     fun recordCaptureFrame(arrivalTimeNs: Long) {
@@ -53,12 +55,14 @@ class MetricsTracker(
         casSharpnessPercent: Int,
         effectiveMotionScalePercent: Int,
         smartGateStatus: String,
+        thermalBadge: String? = null,
         isInterpolating: Boolean
     ) {
         synchronized(lock) {
             this.casSharpnessPercent = casSharpnessPercent
             this.effectiveMotionScalePercent = effectiveMotionScalePercent
             this.smartGateStatus = smartGateStatus
+            this.thermalBadge = thermalBadge
             this.isInterpolating = isInterpolating
         }
     }
@@ -128,6 +132,7 @@ class MetricsTracker(
                 casSharpnessPercent = casSharpnessPercent,
                 effectiveMotionScalePercent = effectiveMotionScalePercent,
                 smartGateStatus = smartGateStatus,
+                thermalBadge = thermalBadge,
                 isInterpolating = isInterpolating,
                 capturedFramesTotal = capturedFramesTotal,
                 renderedFramesTotal = renderedFramesTotal
@@ -146,6 +151,7 @@ class MetricsTracker(
             capturedFramesTotal = 0L
             renderedFramesTotal = 0L
             isInterpolating = false
+            thermalBadge = null
             smartGateStatus = "Active"
         }
     }

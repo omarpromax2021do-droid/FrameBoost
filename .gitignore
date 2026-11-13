@@ -2,6 +2,7 @@
 build/
 app/build/
 local.properties
+keystore/
 *.jks
 *.keystore
 .env
@@ -10,6 +11,7 @@ local.properties
 .kotlin/
 captures/
 *.apk
+*.sha256
 *.aab
 *.ap_
 *.dex

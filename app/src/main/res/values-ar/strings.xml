@@ -155,4 +155,53 @@
     <string name="telemetry_base_to_output">الأصلي ← المخرج (FPS)</string>
     <string name="telemetry_cas_scale">حدة CAS ونطاق الحركة</string>
     <string name="telemetry_smart_gate">حالة بوابة الأمان</string>
+
+    <!-- Phase 4: Auto-Pilot, HUD Editor, RAM Booster, Thermal Guard & Benchmark -->
+    <string name="capture_phase4_note">المرحلة 4 جاهزة: التدفق البصري + AMD CAS + الطيار الآلي (CODM/RDR1) + مسرّع الذاكرة + الحماية الحرارية.</string>
+    <string name="btn_open_benchmark">اختبار الشاشة المقسومة</string>
+    <string name="btn_boost_ram">تفريغ الذاكرة وتحسين الأداء</string>
+    <string name="btn_boost_launch">تحسين وتشغيل</string>
+    <string name="btn_add_custom_game">إضافة لعبة مخصصة</string>
+    <string name="btn_edit_hud_zones">تعديل مناطق حماية HUD</string>
+    <string name="btn_save">حفظ</string>
+    <string name="btn_cancel">إلغاء</string>
+    <string name="btn_reset_defaults">الافتراضي</string>
+    <string name="btn_remove">حذف</string>
+
+    <string name="boost_toast_format">تم تحرير %1$d م.ب RAM (المتاح %2$d م.ب) • وضع اللعب: %3$s</string>
+    <string name="autopilot_toast_format">الطيار الآلي: %1$s • تحرير %2$d م.ب • وضع اللعب: %3$s</string>
+    <string name="autopilot_active_profile">اللعبة المكتشفة: %1$s (%2$s)</string>
+    <string name="autopilot_custom_games_title">ملفات الألعاب المخصصة</string>
+
+    <string name="ram_thermal_title">محسّن الذاكرة والحماية الحرارية</string>
+    <string name="gamemode_label">وضع ألعاب النظام</string>
+    <string name="last_boost_label">آخر تنظيف للذاكرة</string>
+    <string name="last_boost_value">تحرير %1$d م.ب (%2$d عمليات) • متاح %3$d م.ب</string>
+    <string name="thermal_status_label">حالة الحماية الحرارية</string>
+    <string name="thermal_normal_format">طبيعية (%1$.1f°C • %2$s)</string>
+    <string name="thermal_throttled_format">تخفيف حراري: %1$s (%2$.1f°C)</string>
+
+    <string name="hud_editor_title">محرر مناطق حماية واجهة اللعبة</string>
+    <string name="hud_zone_crosshair">حماية مؤشر التصويب بالمنتصف</string>
+    <string name="hud_zone_crosshair_size">حجم مربع التصويب</string>
+    <string name="hud_zone_minimap">حماية الخريطة المصغرة</string>
+    <string name="hud_zone_minimap_size">العرض × الارتفاع للخريطة</string>
+    <string name="hud_zone_left_controls">حماية أزرار الحركة اليسرى</string>
+    <string name="hud_zone_right_controls">حماية أزرار التصويب اليمنى</string>
+    <string name="hud_zone_controls_height">ارتفاع أزرار التحكم السفلية</string>
+
+    <string name="picker_title">اختر لعبة أو تطبيقاً مثبتاً</string>
+    <string name="picker_configure_title">ضبط ملف اللعبة</string>
+    <string name="picker_search_hint">ابحث بالاسم أو الحزمة…</string>
+
+    <string name="benchmark_title">اختبار الشاشة المقسومة البصري</string>
+    <string name="benchmark_top_label">الأعلى: الصورة الأصلية (بدون توضيح)</string>
+    <string name="benchmark_bottom_label">الأسفل: Framewise المولّد + توضيح AMD CAS</string>
+    <string name="benchmark_live_metrics">القياسات الفعلية للاختبار على العتاد</string>
+    <string name="benchmark_base_fps">معدل المشهد الأساسي (الأعلى)</string>
+    <string name="benchmark_output_fps">معدل المزامنة الفعلي (الأسفل)</string>
+    <string name="benchmark_controls">إعدادات الاختبار</string>
+    <string name="btn_export_markdown">نسخ Markdown</string>
+    <string name="btn_export_json">مشاركة JSON</string>
+    <string name="benchmark_copied_msg">تم نسخ تقرير الاختبار إلى الحافظة</string>
 </resources>

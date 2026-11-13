@@ -1,7 +1,31 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) {
+        f.inputStream().use { load(it) }
+    }
+}
+
+fun releaseConfigValue(propKey: String, envKey: String): String? {
+    return localProps.getProperty(propKey)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
+}
+
+val releaseStoreFilePath = releaseConfigValue("RELEASE_STORE_FILE", "RELEASE_STORE_FILE")
+val releaseStorePassword = releaseConfigValue("RELEASE_STORE_PASSWORD", "ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = releaseConfigValue("RELEASE_KEY_ALIAS", "ANDROID_KEY_ALIAS")
+val releaseKeyPassword = releaseConfigValue("RELEASE_KEY_PASSWORD", "ANDROID_KEY_PASSWORD")
+val hasReleaseKeystore = !releaseStoreFilePath.isNullOrBlank() &&
+    rootProject.file(releaseStoreFilePath).exists() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
 
 val appVersionCode: Int = providers.gradleProperty("versionCode")
     .map { it.toIntOrNull() ?: 1 }
@@ -27,9 +51,24 @@ android {
         buildConfigField("String", "GITHUB_REPO", "\"FrameBoost\"")
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFilePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

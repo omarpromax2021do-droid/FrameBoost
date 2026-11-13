@@ -24,6 +24,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CleaningServices
+import androidx.compose.material.icons.rounded.Compare
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Memory
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +49,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -67,6 +71,7 @@ import com.framewise.app.CalibrationUiState
 import com.framewise.app.MainUiState
 import com.framewise.app.R
 import com.framewise.app.UpdaterUiState
+import com.framewise.app.autopilot.GameProfileRepository
 import com.framewise.app.capture.FrameBoostOverlayService
 import com.framewise.app.capture.PipelineSessionState
 import com.framewise.app.device.InterpolationMode
@@ -80,6 +85,11 @@ import java.util.Locale
 fun HomeDashboardScreen(
     uiState: MainUiState,
     onOpenSettings: () -> Unit,
+    onOpenBenchmark: () -> Unit,
+    onOpenHudEditor: () -> Unit,
+    onOpenAppsPicker: () -> Unit,
+    onBoostMemory: (String?) -> Unit,
+    onRemoveCustomGame: (String) -> Unit,
     onToggleLanguage: () -> Unit,
     onSelectMode: (InterpolationMode) -> Unit,
     onToggleSession: () -> Unit,
@@ -240,7 +250,7 @@ fun HomeDashboardScreen(
                 Text(
                     text = stringResource(
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                            R.string.capture_ready_note
+                            R.string.capture_phase4_note
                         } else {
                             R.string.capture_pre_u_note
                         }
@@ -320,6 +330,71 @@ fun HomeDashboardScreen(
                     ) {
                         Text(text = stringResource(R.string.btn_calibrate_now))
                     }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onOpenBenchmark,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Rounded.Compare, contentDescription = null)
+                        Text(text = stringResource(R.string.btn_open_benchmark))
+                    }
+                    OutlinedButton(
+                        onClick = onOpenHudEditor,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Rounded.Tune, contentDescription = null)
+                        Text(text = stringResource(R.string.btn_edit_hud_zones))
+                    }
+                }
+            }
+
+            // Pre-Launch RAM Booster & Thermal Guard Card
+            FramewiseCard {
+                Text(
+                    text = stringResource(R.string.ram_thermal_title),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                SpecRow(stringResource(R.string.gamemode_label), uiState.gameModeLabel)
+
+                val thermal = uiState.thermalState
+                val thermalText = if (thermal.isThrottled) {
+                    stringResource(
+                        R.string.thermal_throttled_format,
+                        thermal.hudWarningBadge ?: thermal.severity.name,
+                        thermal.batteryTempCelsius
+                    )
+                } else {
+                    stringResource(
+                        R.string.thermal_normal_format,
+                        thermal.batteryTempCelsius,
+                        thermal.severity.name
+                    )
+                }
+                SpecRow(stringResource(R.string.thermal_status_label), thermalText)
+
+                uiState.lastBoostReport?.let { report ->
+                    SpecRow(
+                        stringResource(R.string.last_boost_label),
+                        stringResource(
+                            R.string.last_boost_value,
+                            report.freedRamMb,
+                            report.killedPackagesCount,
+                            report.availableRamMbAfter
+                        )
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { onBoostMemory(null) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Rounded.CleaningServices, contentDescription = null)
+                    Text(text = stringResource(R.string.btn_boost_ram))
                 }
             }
 
@@ -436,6 +511,81 @@ fun HomeDashboardScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+
+                uiState.activeAutoPilotPreset?.let { preset ->
+                    Text(
+                        text = stringResource(R.string.autopilot_active_profile, preset.displayName, preset.presetLabel),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FramewiseColors.ElectricEmerald
+                    )
+                }
+
+                val installedBuiltIns = remember {
+                    val pm = context.packageManager
+                    GameProfileRepository.builtInProfiles.values.filter {
+                        pm.getLaunchIntentForPackage(it.packageName) != null
+                    }
+                }
+
+                if (installedBuiltIns.isNotEmpty() || settings.customProfiles.isNotEmpty()) {
+                    HorizontalDivider(color = FramewiseColors.BorderSubtle)
+                    Text(
+                        text = stringResource(R.string.autopilot_custom_games_title),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    installedBuiltIns.forEach { game ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = game.displayName,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { onBoostMemory(game.packageName) }) {
+                                Text(stringResource(R.string.btn_boost_launch))
+                            }
+                        }
+                    }
+                    settings.customProfiles.forEach { custom ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = custom.displayName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "${custom.preferredMotionScale}% • CAS ${
+                                        String.format(Locale.US, "%.2f", custom.preferredCasSharpness)
+                                    }",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            TextButton(onClick = { onBoostMemory(custom.packageName) }) {
+                                Text(stringResource(R.string.btn_boost_launch))
+                            }
+                            TextButton(onClick = { onRemoveCustomGame(custom.packageName) }) {
+                                Text(stringResource(R.string.btn_remove), color = FramewiseColors.CoralError)
+                            }
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = onOpenAppsPicker,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = stringResource(R.string.btn_add_custom_game))
                 }
             }
 

@@ -57,6 +57,8 @@ fun SettingsScreen(
     onToggleThermalGuard: (Boolean) -> Unit,
     onToggleSmartGate: (Boolean) -> Unit,
     onToggleStartupUpdateCheck: (Boolean) -> Unit,
+    onOpenHudEditor: () -> Unit,
+    onOpenBenchmark: () -> Unit,
     onCheckUpdates: () -> Unit,
     onDownloadUpdate: (ReleaseInfo) -> Unit,
     onInstallUpdate: (File) -> Unit,
@@ -210,6 +212,12 @@ fun SettingsScreen(
                     checked = settings.smartGateEnabled,
                     onCheckedChange = onToggleSmartGate
                 )
+                OutlinedButton(
+                    onClick = onOpenHudEditor,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.btn_edit_hud_zones))
+                }
             }
 
             // Secure GitHub Release Updater
@@ -355,6 +363,12 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(stringResource(R.string.btn_rerun_calibration))
+                }
+                OutlinedButton(
+                    onClick = onOpenBenchmark,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.btn_open_benchmark))
                 }
                 OutlinedButton(
                     onClick = onOpenWelcomeGuide,

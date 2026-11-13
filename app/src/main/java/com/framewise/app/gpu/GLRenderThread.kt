@@ -27,9 +27,45 @@ data class LiveRenderConfig(
     val motionScalePercent: Int = 40,
     val casSharpness: Float = 0.65f,
     val hudMaskEnabled: Boolean = true,
+    val hudProtectedRects: FloatArray = CasSynthesisShaderProgram.DEFAULT_FPS_HUD_RECTS,
     val smartGateEnabled: Boolean = true,
-    val targetPanelHz: Float = 60f
-)
+    val targetPanelHz: Float = 60f,
+    val minCaptureFpsGateOverride: Float? = null,
+    val thermalScaleCapPercent: Int? = null,
+    val thermalForceCasOnly: Boolean = false,
+    val thermalWarningBadge: String? = null
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is LiveRenderConfig) return false
+        return mode == other.mode &&
+            motionScalePercent == other.motionScalePercent &&
+            casSharpness == other.casSharpness &&
+            hudMaskEnabled == other.hudMaskEnabled &&
+            hudProtectedRects.contentEquals(other.hudProtectedRects) &&
+            smartGateEnabled == other.smartGateEnabled &&
+            targetPanelHz == other.targetPanelHz &&
+            minCaptureFpsGateOverride == other.minCaptureFpsGateOverride &&
+            thermalScaleCapPercent == other.thermalScaleCapPercent &&
+            thermalForceCasOnly == other.thermalForceCasOnly &&
+            thermalWarningBadge == other.thermalWarningBadge
+    }
+
+    override fun hashCode(): Int {
+        var result = mode.hashCode()
+        result = 31 * result + motionScalePercent
+        result = 31 * result + casSharpness.hashCode()
+        result = 31 * result + hudMaskEnabled.hashCode()
+        result = 31 * result + hudProtectedRects.contentHashCode()
+        result = 31 * result + smartGateEnabled.hashCode()
+        result = 31 * result + targetPanelHz.hashCode()
+        result = 31 * result + (minCaptureFpsGateOverride?.hashCode() ?: 0)
+        result = 31 * result + (thermalScaleCapPercent ?: 0)
+        result = 31 * result + thermalForceCasOnly.hashCode()
+        result = 31 * result + (thermalWarningBadge?.hashCode() ?: 0)
+        return result
+    }
+}
 
 class GLRenderThread(
     private val context: Context,
@@ -233,25 +269,36 @@ class GLRenderThread(
         try {
             val cfg = liveConfig
             val nowNs = System.nanoTime()
+            val cappedRequestedScale = cfg.thermalScaleCapPercent?.let {
+                minOf(cfg.motionScalePercent, it)
+            } ?: cfg.motionScalePercent
             val gate = smartGateController.evaluate(
                 enabled = cfg.smartGateEnabled,
                 requestedMode = cfg.mode,
-                requestedScalePercent = cfg.motionScalePercent,
+                requestedScalePercent = cappedRequestedScale,
                 captureFps = metricsTracker.latestRollingCaptureFps(nowNs),
                 gpuPassTimeMs = metricsTracker.latestAverageGpuPassMs(),
-                nowNs = nowNs
+                nowNs = nowNs,
+                minCaptureFpsOverride = cfg.minCaptureFpsGateOverride
             )
+            val effectiveBypass = gate.bypassOpticalFlow || cfg.thermalForceCasOnly
+            val effectiveScale = if (cfg.thermalScaleCapPercent != null) {
+                minOf(gate.effectiveMotionScalePercent, cfg.thermalScaleCapPercent)
+            } else {
+                gate.effectiveMotionScalePercent
+            }
             val decision = framePacer.evaluateVsyncTick(
                 frameTimeNs = frameTimeNanos,
                 mode = cfg.mode,
-                bypassOpticalFlow = gate.bypassOpticalFlow,
+                bypassOpticalFlow = effectiveBypass,
                 panelRefreshHz = cfg.targetPanelHz
             )
 
             metricsTracker.updateRuntimeTelemetryState(
                 casSharpnessPercent = (cfg.casSharpness * 100f).toInt().coerceIn(0, 100),
-                effectiveMotionScalePercent = gate.effectiveMotionScalePercent,
-                smartGateStatus = gate.statusReason,
+                effectiveMotionScalePercent = effectiveScale,
+                smartGateStatus = cfg.thermalWarningBadge ?: gate.statusReason,
+                thermalBadge = cfg.thermalWarningBadge,
                 isInterpolating = decision.outputType == FrameOutputType.SYNTHESIZED_INTERMEDIATE
             )
 
@@ -269,7 +316,7 @@ class GLRenderThread(
             }
 
             if (decision.runMotionEstimationPass) {
-                motionFbo.ensureAllocated(captureWidth, captureHeight, gate.effectiveMotionScalePercent)
+                motionFbo.ensureAllocated(captureWidth, captureHeight, effectiveScale)
                 opticalFlowProgram?.execute(
                     quadBuffer = quadBuffer,
                     prevTexId = pingPongFbos.prevTexId,
@@ -279,7 +326,7 @@ class GLRenderThread(
                     targetMotionFbo = motionFbo
                 )
             } else if (motionFbo.texId == 0) {
-                motionFbo.ensureAllocated(captureWidth, captureHeight, gate.effectiveMotionScalePercent)
+                motionFbo.ensureAllocated(captureWidth, captureHeight, effectiveScale)
             }
 
             casSynthesisProgram?.execute(
@@ -295,7 +342,8 @@ class GLRenderThread(
                 outputHeight = windowHeight,
                 interpolationAlpha = decision.interpolationAlpha,
                 casSharpness = cfg.casSharpness,
-                hudMaskEnabled = cfg.hudMaskEnabled
+                hudMaskEnabled = cfg.hudMaskEnabled,
+                hudProtectedRects = cfg.hudProtectedRects
             )
 
             if (supportsDisjointTimerQuery) {

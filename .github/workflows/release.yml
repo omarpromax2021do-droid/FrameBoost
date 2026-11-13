@@ -81,12 +81,12 @@ jobs:
               --ks-pass env:KEYSTORE_PASS \
               --ks-key-alias "$KEY_ALIAS" \
               --key-pass env:KEY_PASS \
-              --out "Framewise-v${{ steps.version.outputs.version_name }}.apk" \
+              --out "FrameBoost-v${{ steps.version.outputs.version_name }}.apk" \
               "$UNSIGNED_OR_DEBUG_APK"
           else
-            cp "$UNSIGNED_OR_DEBUG_APK" "Framewise-v${{ steps.version.outputs.version_name }}.apk"
+            cp "$UNSIGNED_OR_DEBUG_APK" "FrameBoost-v${{ steps.version.outputs.version_name }}.apk"
           fi
-          sha256sum "Framewise-v${{ steps.version.outputs.version_name }}.apk" > "Framewise-v${{ steps.version.outputs.version_name }}.apk.sha256"
+          sha256sum "FrameBoost-v${{ steps.version.outputs.version_name }}.apk" > "FrameBoost-v${{ steps.version.outputs.version_name }}.apk.sha256"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -94,8 +94,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: Framewise ${{ steps.version.outputs.tag }}
+          name: FrameBoost ${{ steps.version.outputs.tag }}
           generate_release_notes: true
           files: |
-            Framewise-v${{ steps.version.outputs.version_name }}.apk
-            Framewise-v${{ steps.version.outputs.version_name }}.apk.sha256
+            FrameBoost-v${{ steps.version.outputs.version_name }}.apk
+            FrameBoost-v${{ steps.version.outputs.version_name }}.apk.sha256

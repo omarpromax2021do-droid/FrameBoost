@@ -5,6 +5,12 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.framewise.app.autopilot.BoostReport
+import com.framewise.app.autopilot.GameProfile
+import com.framewise.app.autopilot.HudProtectionZonesConfig
+import com.framewise.app.autopilot.ResolvedAutoPilotPreset
+import com.framewise.app.autopilot.SystemOptimizer
+import com.framewise.app.autopilot.ThermalGuardState
 import com.framewise.app.capture.FrameCaptureService
 import com.framewise.app.capture.MediaProjectionTokenStore
 import com.framewise.app.capture.PipelineController
@@ -55,6 +61,10 @@ data class MainUiState(
     val calibrationState: CalibrationUiState = CalibrationUiState.Idle,
     val updaterState: UpdaterUiState = UpdaterUiState.Idle,
     val sessionState: PipelineSessionState = PipelineSessionState.Idle,
+    val thermalState: ThermalGuardState = ThermalGuardState(),
+    val activeAutoPilotPreset: ResolvedAutoPilotPreset? = null,
+    val lastBoostReport: BoostReport? = null,
+    val gameModeLabel: String = "Standard",
     val isLoading: Boolean = true
 )
 
@@ -70,9 +80,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var startupUpdateChecked = false
 
     init {
+        PipelineController.ensureMonitoringStarted(application)
+        _uiState.update { it.copy(gameModeLabel = SystemOptimizer.queryGameModeLabel(application)) }
         viewModelScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
                 _uiState.update { it.copy(settings = settings, isLoading = false) }
+                PipelineController.syncSettingsAndProfile(settings, _uiState.value.hardwareProfile)
                 pushLiveRenderConfig(settings)
                 refreshHardwareProfile(settings.lastCalibrationMs)
                 if (!startupUpdateChecked && settings.checkUpdatesOnStartup && settings.onboardingCompleted) {
@@ -86,6 +99,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(sessionState = session) }
             }
         }
+        viewModelScope.launch {
+            PipelineController.thermalState.collect { thermal ->
+                _uiState.update { it.copy(thermalState = thermal) }
+            }
+        }
+        viewModelScope.launch {
+            PipelineController.activeAutoPilotPreset.collect { preset ->
+                _uiState.update { it.copy(activeAutoPilotPreset = preset) }
+            }
+        }
+        viewModelScope.launch {
+            PipelineController.lastBoostReport.collect { report ->
+                _uiState.update {
+                    it.copy(
+                        lastBoostReport = report,
+                        gameModeLabel = report?.gameModeLabel ?: it.gameModeLabel
+                    )
+                }
+            }
+        }
     }
 
     private fun pushLiveRenderConfig(settings: AppSettings) {
@@ -95,6 +128,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 motionScalePercent = settings.motionScalePercent,
                 casSharpness = settings.casSharpness,
                 hudMaskEnabled = settings.hudMaskEnabled,
+                hudProtectedRects = settings.hudZones.toGlUvFloatArray(),
                 smartGateEnabled = settings.smartGateEnabled,
                 targetPanelHz = settings.targetFps.toFloat()
             ),
@@ -114,8 +148,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshHardwareProfile(lastCalibrationMs: Double? = _uiState.value.settings.lastCalibrationMs) {
         viewModelScope.launch {
             val profile = hardwareProfiler.collectProfile(lastCalibrationMs)
+            PipelineController.syncSettingsAndProfile(_uiState.value.settings, profile)
             _uiState.update { it.copy(hardwareProfile = profile) }
         }
+    }
+
+    fun setHudZones(config: HudProtectionZonesConfig) {
+        viewModelScope.launch {
+            settingsRepository.setHudZones(config)
+        }
+    }
+
+    fun saveCustomGameProfile(profile: GameProfile) {
+        viewModelScope.launch {
+            settingsRepository.upsertCustomGameProfile(profile)
+        }
+    }
+
+    fun removeCustomGameProfile(packageName: String) {
+        viewModelScope.launch {
+            settingsRepository.removeCustomGameProfile(packageName)
+        }
+    }
+
+    fun boostMemoryAndOptionallyLaunch(packageName: String? = null) {
+        val report = SystemOptimizer.boostAndLaunchGame(getApplication(), packageName)
+        PipelineController.recordBoostReport(report)
     }
 
     fun setLanguage(languageTag: String) {
