@@ -10,10 +10,12 @@ import android.opengl.EGLExt
 import android.opengl.EGLSurface
 import android.opengl.GLES11Ext
 import android.opengl.GLES30
+import android.opengl.GLES31
 import android.os.Handler
 import android.os.HandlerThread
 import android.view.Choreographer
 import android.view.Surface
+import com.framewise.app.capture.FrameBoostOverlayService
 import com.framewise.app.device.InterpolationMode
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -96,6 +98,12 @@ class GLRenderThread(
     private var captureWidth: Int = initialWidth.coerceAtLeast(16)
     private var captureHeight: Int = initialHeight.coerceAtLeast(16)
 
+    @Volatile
+    private var isResizing: Boolean = false
+    private var validFramesInCurrentOrientation: Int = 0
+    private var lastOverlayVisibleState: Boolean = false
+    private var lastCpuSubmissionMs: Double = 0.0
+
     private var oesTextureId: Int = 0
     private var inputSurfaceTexture: SurfaceTexture? = null
     private var inputSurface: Surface? = null
@@ -154,9 +162,15 @@ class GLRenderThread(
             val created = EGL14.eglCreateWindowSurface(eglDisplay, config, surface, attribs, 0)
             if (created != null && created != EGL14.EGL_NO_SURFACE) {
                 windowSurface = created
-                windowWidth = width.coerceAtLeast(1)
-                windowHeight = height.coerceAtLeast(1)
+                val safeW = width.coerceAtLeast(1)
+                val safeH = height.coerceAtLeast(1)
+                windowWidth = safeW
+                windowHeight = safeH
                 EGL14.eglMakeCurrent(eglDisplay, windowSurface, windowSurface, eglContext)
+                if ((safeW > safeH) != (captureWidth > captureHeight)) {
+                    applyDisplayResizeInternal(safeW, safeH, 160)
+                }
+                clearOutputSurfaceTransparent()
             }
         }
     }
@@ -166,6 +180,7 @@ class GLRenderThread(
         val latch = CountDownLatch(1)
         val posted = renderHandler.post {
             try {
+                updateOverlayVisibility(false)
                 destroyWindowSurfaceOnly()
             } finally {
                 latch.countDown()
@@ -176,20 +191,51 @@ class GLRenderThread(
         }
     }
 
-    fun updateCaptureSize(width: Int, height: Int) {
+    fun onDisplaySizeChanged(newWidth: Int, newHeight: Int, densityDpi: Int = 160) {
         if (!::renderHandler.isInitialized) return
         renderHandler.post {
-            if (!running.get()) return@post
-            val safeW = width.coerceAtLeast(16)
-            val safeH = height.coerceAtLeast(16)
-            if (safeW != captureWidth || safeH != captureHeight) {
-                captureWidth = safeW
-                captureHeight = safeH
-                inputSurfaceTexture?.setDefaultBufferSize(safeW, safeH)
-                pingPongFbos.ensureAllocated(safeW, safeH)
-                motionFbo.ensureAllocated(safeW, safeH, liveConfig.motionScalePercent)
-            }
+            applyDisplayResizeInternal(newWidth, newHeight, densityDpi)
         }
+    }
+
+    fun updateCaptureSize(width: Int, height: Int) {
+        onDisplaySizeChanged(width, height, 160)
+    }
+
+    private fun applyDisplayResizeInternal(newWidth: Int, newHeight: Int, densityDpi: Int) {
+        if (!running.get()) return
+        val spec = DisplayResizeState.computeResizeSpec(
+            rawWidth = newWidth,
+            rawHeight = newHeight,
+            densityDpi = densityDpi,
+            motionScalePercent = liveConfig.motionScalePercent
+        )
+        windowWidth = spec.surfaceWidth
+        windowHeight = spec.surfaceHeight
+        if (spec.captureWidth == captureWidth && spec.captureHeight == captureHeight) {
+            return
+        }
+
+        isResizing = true
+        validFramesInCurrentOrientation = 0
+        hasCapturedFrame = false
+        updateOverlayVisibility(false)
+
+        captureWidth = spec.captureWidth
+        captureHeight = spec.captureHeight
+        inputSurfaceTexture?.setDefaultBufferSize(captureWidth, captureHeight)
+        pingPongFbos.ensureAllocated(captureWidth, captureHeight)
+        motionFbo.ensureAllocated(captureWidth, captureHeight, liveConfig.motionScalePercent)
+        clearFboTransparent(pingPongFbos.prevFboId, pingPongFbos.width, pingPongFbos.height)
+        clearFboTransparent(pingPongFbos.currFboId, pingPongFbos.width, pingPongFbos.height)
+
+        if (windowSurface != EGL14.EGL_NO_SURFACE) {
+            EGL14.eglMakeCurrent(eglDisplay, windowSurface, windowSurface, eglContext)
+            clearOutputSurfaceTransparent()
+        } else if (pbufferSurface != EGL14.EGL_NO_SURFACE) {
+            EGL14.eglMakeCurrent(eglDisplay, pbufferSurface, pbufferSurface, eglContext)
+        }
+        isResizing = false
     }
 
     fun shutdown() {
@@ -229,8 +275,10 @@ class GLRenderThread(
                 EGL14.eglMakeCurrent(eglDisplay, pbufferSurface, pbufferSurface, eglContext)
             }
 
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, pingPongFbos.currFboId)
-            GLES30.glViewport(0, 0, pingPongFbos.width, pingPongFbos.height)
+            GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, pingPongFbos.currFboId)
+            GLES31.glViewport(0, 0, pingPongFbos.width, pingPongFbos.height)
+            GLES31.glClearColor(0f, 0f, 0f, 0f)
+            GLES31.glClear(GLES31.GL_COLOR_BUFFER_BIT)
             GLES30.glUseProgram(oesProgramId)
 
             GLES30.glEnableVertexAttribArray(oesPosLoc)
@@ -244,10 +292,14 @@ class GLRenderThread(
 
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
             GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0)
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, 0)
+            GLES31.glViewport(0, 0, windowWidth, windowHeight)
 
             framePacer.onNewCaptureFrameArrived()
-            hasCapturedFrame = true
+            if (!isResizing) {
+                validFramesInCurrentOrientation++
+                hasCapturedFrame = true
+            }
         } catch (t: Throwable) {
             onError(t.message ?: "Frame capture GL error")
         }
@@ -258,6 +310,8 @@ class GLRenderThread(
 
         if (hasCapturedFrame && windowSurface != EGL14.EGL_NO_SURFACE && pingPongFbos.currTexId != 0) {
             renderPacedFrame(frameTimeNanos)
+        } else {
+            updateOverlayVisibility(false)
         }
 
         if (running.get()) {
@@ -267,8 +321,12 @@ class GLRenderThread(
 
     private fun renderPacedFrame(frameTimeNanos: Long) {
         try {
+            EGL14.eglMakeCurrent(eglDisplay, windowSurface, windowSurface, eglContext)
+            syncLiveWindowDimensions()
+
             val cfg = liveConfig
             val nowNs = System.nanoTime()
+            val captureFps = metricsTracker.latestRollingCaptureFps(nowNs)
             val cappedRequestedScale = cfg.thermalScaleCapPercent?.let {
                 minOf(cfg.motionScalePercent, it)
             } ?: cfg.motionScalePercent
@@ -276,7 +334,7 @@ class GLRenderThread(
                 enabled = cfg.smartGateEnabled,
                 requestedMode = cfg.mode,
                 requestedScalePercent = cappedRequestedScale,
-                captureFps = metricsTracker.latestRollingCaptureFps(nowNs),
+                captureFps = captureFps,
                 gpuPassTimeMs = metricsTracker.latestAverageGpuPassMs(),
                 nowNs = nowNs,
                 minCaptureFpsOverride = cfg.minCaptureFpsGateOverride
@@ -302,21 +360,35 @@ class GLRenderThread(
                 isInterpolating = decision.outputType == FrameOutputType.SYNTHESIZED_INTERMEDIATE
             )
 
+            val keepTransparent = DisplayResizeState.shouldKeepOverlayTransparent(
+                isResizing = isResizing,
+                validFramesInCurrentOrientation = validFramesInCurrentOrientation,
+                bypassOpticalFlow = effectiveBypass,
+                captureFps = captureFps
+            )
+            if (keepTransparent) {
+                updateOverlayVisibility(false)
+                clearOutputSurfaceTransparent()
+                return
+            }
+
             if (decision.outputType == FrameOutputType.SKIP_TICK) {
                 return
             }
 
-            EGL14.eglMakeCurrent(eglDisplay, windowSurface, windowSurface, eglContext)
+            casSynthesisProgram?.prepareOutputFramebuffer(windowWidth, windowHeight)
 
-            val gpuStartNs = if (!supportsDisjointTimerQuery) System.nanoTime() else 0L
+            val vsyncIntervalMs = 1000.0 / cfg.targetPanelHz.coerceAtLeast(30f)
+            val gpuDrawStartNs = System.nanoTime()
             val queryIdx = activeQueryIndex
             if (supportsDisjointTimerQuery) {
-                pollPreviousTimerQuery(1 - queryIdx)
+                pollPreviousTimerQuery(1 - queryIdx, vsyncIntervalMs)
                 GLES30.glBeginQuery(GL_TIME_ELAPSED_EXT, timerQueryIds[queryIdx])
             }
 
             if (decision.runMotionEstimationPass) {
                 motionFbo.ensureAllocated(captureWidth, captureHeight, effectiveScale)
+                GLES31.glViewport(0, 0, motionFbo.width, motionFbo.height)
                 opticalFlowProgram?.execute(
                     quadBuffer = quadBuffer,
                     prevTexId = pingPongFbos.prevTexId,
@@ -329,6 +401,8 @@ class GLRenderThread(
                 motionFbo.ensureAllocated(captureWidth, captureHeight, effectiveScale)
             }
 
+            GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, 0)
+            GLES31.glViewport(0, 0, windowWidth, windowHeight)
             casSynthesisProgram?.execute(
                 quadBuffer = quadBuffer,
                 prevTexId = pingPongFbos.prevTexId,
@@ -343,20 +417,25 @@ class GLRenderThread(
                 interpolationAlpha = decision.interpolationAlpha,
                 casSharpness = cfg.casSharpness,
                 hudMaskEnabled = cfg.hudMaskEnabled,
-                hudProtectedRects = cfg.hudProtectedRects
+                hudProtectedRects = cfg.hudProtectedRects,
+                clearBeforeDraw = false
             )
 
             if (supportsDisjointTimerQuery) {
                 GLES30.glEndQuery(GL_TIME_ELAPSED_EXT)
+                GLES31.glFlush()
+                lastCpuSubmissionMs = (System.nanoTime() - gpuDrawStartNs) / 1_000_000.0
                 queryArmed[queryIdx] = true
                 activeQueryIndex = 1 - queryIdx
             } else {
-                GLES30.glFinish()
-                lastMeasuredGpuPassMs = (System.nanoTime() - gpuStartNs) / 1_000_000.0
+                GLES31.glFlush()
+                lastCpuSubmissionMs = (System.nanoTime() - gpuDrawStartNs) / 1_000_000.0
+                lastMeasuredGpuPassMs = lastCpuSubmissionMs
             }
 
             EGLExt.eglPresentationTimeANDROID(eglDisplay, windowSurface, decision.presentationTimeNs)
             EGL14.eglSwapBuffers(eglDisplay, windowSurface)
+            updateOverlayVisibility(true)
 
             val swapDoneNs = System.nanoTime()
             metricsTracker.recordOutputFrame(
@@ -369,15 +448,64 @@ class GLRenderThread(
         }
     }
 
-    private fun pollPreviousTimerQuery(prevIndex: Int) {
+    private fun syncLiveWindowDimensions() {
+        val wArr = IntArray(1)
+        val hArr = IntArray(1)
+        val okW = EGL14.eglQuerySurface(eglDisplay, windowSurface, EGL14.EGL_WIDTH, wArr, 0)
+        val okH = EGL14.eglQuerySurface(eglDisplay, windowSurface, EGL14.EGL_HEIGHT, hArr, 0)
+        if (!okW || !okH || wArr[0] <= 0 || hArr[0] <= 0) return
+
+        val liveW = wArr[0]
+        val liveH = hArr[0]
+        if (liveW != windowWidth || liveH != windowHeight) {
+            windowWidth = liveW
+            windowHeight = liveH
+            if ((liveW > liveH) != (captureWidth > captureHeight)) {
+                applyDisplayResizeInternal(liveW, liveH, 160)
+            }
+        }
+    }
+
+    private fun clearOutputSurfaceTransparent() {
+        if (windowSurface == EGL14.EGL_NO_SURFACE) return
+        GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, 0)
+        GLES31.glViewport(0, 0, windowWidth.coerceAtLeast(1), windowHeight.coerceAtLeast(1))
+        GLES31.glClearColor(0f, 0f, 0f, 0f)
+        GLES31.glClear(GLES31.GL_COLOR_BUFFER_BIT)
+        EGL14.eglSwapBuffers(eglDisplay, windowSurface)
+    }
+
+    private fun clearFboTransparent(fboId: Int, width: Int, height: Int) {
+        if (fboId == 0 || width <= 0 || height <= 0) return
+        GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, fboId)
+        GLES31.glViewport(0, 0, width, height)
+        GLES31.glClearColor(0f, 0f, 0f, 0f)
+        GLES31.glClear(GLES31.GL_COLOR_BUFFER_BIT)
+        GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, 0)
+    }
+
+    private fun updateOverlayVisibility(visible: Boolean) {
+        if (lastOverlayVisibleState == visible) return
+        lastOverlayVisibleState = visible
+        FrameBoostOverlayService.setOverlayRenderVisible(visible)
+    }
+
+    private fun pollPreviousTimerQuery(prevIndex: Int, vsyncIntervalMs: Double) {
         if (!queryArmed[prevIndex]) return
         val available = IntArray(1)
         GLES30.glGetQueryObjectuiv(timerQueryIds[prevIndex], GLES30.GL_QUERY_RESULT_AVAILABLE, available, 0)
         if (available[0] != 0) {
+            val disjoint = IntArray(1)
+            GLES30.glGetIntegerv(GL_GPU_DISJOINT_EXT, disjoint, 0)
             val elapsedNs = IntArray(1)
             GLES30.glGetQueryObjectuiv(timerQueryIds[prevIndex], GLES30.GL_QUERY_RESULT, elapsedNs, 0)
             val unsignedNs = elapsedNs[0].toLong() and 0xFFFFFFFFL
-            lastMeasuredGpuPassMs = unsignedNs / 1_000_000.0
+            val queryMs = unsignedNs / 1_000_000.0
+            lastMeasuredGpuPassMs = if (disjoint[0] == 0 && queryMs in 0.0..vsyncIntervalMs) {
+                queryMs
+            } else {
+                lastCpuSubmissionMs
+            }
             queryArmed[prevIndex] = false
         }
     }
@@ -611,5 +739,6 @@ class GLRenderThread(
     private companion object {
         const val EGL_CONTEXT_MINOR_VERSION_KHR = 0x30FB
         const val GL_TIME_ELAPSED_EXT = 0x88BF
+        const val GL_GPU_DISJOINT_EXT = 0x8FBB
     }
 }

@@ -71,4 +71,58 @@ class SmartGateControllerTest {
         assertTrue(stepToCasOnly.bypassOpticalFlow)
         assertTrue(stepToCasOnly.statusReason.contains("GPU Overload"))
     }
+
+    @Test
+    fun defaultSmartGate_immediatelyRecoversFromLowFpsAndStepDownAt60Fps() {
+        val gate = SmartGateController(downgradeHoldNs = 1_500_000_000L)
+
+        // Loading screen dip drops FPS below 40, triggering Low Base FPS fallback
+        gate.evaluate(true, InterpolationMode.COMPETITIVE_60_120, 40, 28f, 1.8f, 1_000_000_000L)
+        val lowFpsDecision = gate.evaluate(true, InterpolationMode.COMPETITIVE_60_120, 40, 28f, 1.8f, 2_600_000_000L)
+        assertTrue(lowFpsDecision.bypassOpticalFlow)
+        assertTrue(lowFpsDecision.statusReason.contains("Low Base FPS (<40)"))
+
+        // Brief shader spike steps 40% down to 25%
+        gate.evaluate(true, InterpolationMode.COMPETITIVE_60_120, 40, 60.1f, 6.67f, 3_000_000_000L)
+        val steppedDown = gate.evaluate(true, InterpolationMode.COMPETITIVE_60_120, 40, 60.1f, 6.67f, 4_600_000_000L)
+        assertEquals(25, steppedDown.effectiveMotionScalePercent)
+        assertFalse(steppedDown.statusReason.contains("Low Base FPS"))
+
+        // Once captureFps is 60.1 FPS and pure shader pass is <= 5.5ms, immediately restore 40% Active
+        val recovered = gate.evaluate(true, InterpolationMode.COMPETITIVE_60_120, 40, 60.1f, 2.1f, 4_650_000_000L)
+        assertFalse(recovered.bypassOpticalFlow)
+        assertEquals(40, recovered.effectiveMotionScalePercent)
+        assertEquals("Active: 60\u2192120 Optical Flow + CAS", recovered.statusReason)
+    }
+
+    @Test
+    fun landscapeResizeSpec_andTransparentSafeguard_behaveCorrectly() {
+        val portrait = DisplayResizeState.computeResizeSpec(
+            rawWidth = 1080,
+            rawHeight = 2400,
+            densityDpi = 400,
+            motionScalePercent = 40
+        )
+        assertEquals(1080, portrait.surfaceWidth)
+        assertEquals(2400, portrait.surfaceHeight)
+
+        val landscape = DisplayResizeState.computeResizeSpec(
+            rawWidth = 2400,
+            rawHeight = 1080,
+            densityDpi = 400,
+            motionScalePercent = 40
+        )
+        assertEquals(2400, landscape.surfaceWidth)
+        assertEquals(1080, landscape.surfaceHeight)
+        assertEquals(2400, landscape.captureWidth)
+        assertEquals(1080, landscape.captureHeight)
+        assertEquals(960, landscape.motionWidth)
+        assertEquals(432, landscape.motionHeight)
+
+        assertTrue(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = true, validFramesInCurrentOrientation = 10, bypassOpticalFlow = false, captureFps = 60f))
+        assertTrue(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = false, validFramesInCurrentOrientation = 2, bypassOpticalFlow = false, captureFps = 60f))
+        assertTrue(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = false, validFramesInCurrentOrientation = 5, bypassOpticalFlow = true, captureFps = 18f))
+        assertFalse(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = false, validFramesInCurrentOrientation = 3, bypassOpticalFlow = false, captureFps = 60.1f))
+        assertFalse(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = false, validFramesInCurrentOrientation = 5, bypassOpticalFlow = true, captureFps = 35f))
+    }
 }

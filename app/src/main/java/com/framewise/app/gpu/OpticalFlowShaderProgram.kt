@@ -2,6 +2,7 @@ package com.framewise.app.gpu
 
 import android.content.Context
 import android.opengl.GLES30
+import android.opengl.GLES31
 import com.framewise.app.R
 import java.nio.FloatBuffer
 
@@ -20,8 +21,8 @@ class OpticalFlowShaderProgram(context: Context) {
         captureHeight: Int,
         targetMotionFbo: MotionEstimationFbo
     ) {
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, targetMotionFbo.fboId)
-        GLES30.glViewport(0, 0, targetMotionFbo.width, targetMotionFbo.height)
+        GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, targetMotionFbo.fboId)
+        GLES31.glViewport(0, 0, targetMotionFbo.width, targetMotionFbo.height)
         GLES30.glUseProgram(programId)
 
         GLES30.glEnableVertexAttribArray(posLoc)

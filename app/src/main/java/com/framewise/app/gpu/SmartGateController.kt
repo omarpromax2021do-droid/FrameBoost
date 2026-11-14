@@ -63,6 +63,9 @@ class SmartGateController(
 
         if (isLowFps || isGpuOverBudget) {
             healthySinceNs = 0L
+            if (!isLowFps && captureFps >= minCaptureFps) {
+                lowFpsFallback = false
+            }
             if (unhealthySinceNs == 0L) {
                 unhealthySinceNs = nowNs
             }
@@ -77,14 +80,16 @@ class SmartGateController(
         } else {
             unhealthySinceNs = 0L
             val isDegraded = lowFpsFallback || gpuCasOnlyFallback || currentScale < normalizedRequested
-            val isRecovered = captureFps >= (minCaptureFps + 2f) && gpuPassTimeMs <= (maxGpuBudgetMs * 0.85f)
+            val isRecovered = captureFps >= minCaptureFps && gpuPassTimeMs <= maxGpuBudgetMs
             if (isDegraded && isRecovered) {
                 if (healthySinceNs == 0L) {
                     healthySinceNs = nowNs
                 }
-                if (nowNs - healthySinceNs >= restoreHoldNs) {
-                    stepUpTowardRequested(normalizedRequested)
-                    healthySinceNs = nowNs
+                if (restoreHoldNs <= 0L || nowNs - healthySinceNs >= restoreHoldNs) {
+                    lowFpsFallback = false
+                    gpuCasOnlyFallback = false
+                    currentScale = normalizedRequested
+                    healthySinceNs = 0L
                 }
             } else {
                 healthySinceNs = 0L
@@ -113,7 +118,7 @@ class SmartGateController(
             else -> SmartGateDecision(
                 bypassOpticalFlow = false,
                 effectiveMotionScalePercent = currentScale,
-                statusReason = "Active ($currentScale% + CAS)"
+                statusReason = activeStatusReason(requestedMode)
             )
         }
     }
@@ -131,22 +136,10 @@ class SmartGateController(
         }
     }
 
-    private fun stepUpTowardRequested(requested: Int) {
-        if (lowFpsFallback) {
-            lowFpsFallback = false
-            return
-        }
-        if (gpuCasOnlyFallback) {
-            gpuCasOnlyFallback = false
-            currentScale = minOf(25, requested)
-            return
-        }
-        if (currentScale < requested) {
-            currentScale = when {
-                currentScale < 40 && requested >= 40 -> 40
-                else -> requested
-            }
-        }
+    private fun activeStatusReason(mode: InterpolationMode): String = when (mode) {
+        InterpolationMode.COMPETITIVE_60_120 -> "Active: 60→120 Optical Flow + CAS"
+        InterpolationMode.CONSOLE_30_60 -> "Active: 30→60 Optical Flow + CAS"
+        InterpolationMode.STABILIZER_60_CAS -> "60Hz Stabilizer + CAS"
     }
 
     private fun resetDegradationState(scale: Int) {
@@ -164,6 +157,6 @@ class SmartGateController(
 
     companion object {
         const val DEFAULT_DOWNGRADE_HOLD_NS = 1_500_000_000L
-        const val DEFAULT_RESTORE_HOLD_NS = 3_000_000_000L
+        const val DEFAULT_RESTORE_HOLD_NS = 0L
     }
 }

@@ -87,6 +87,7 @@ object PipelineController {
     private var pendingSurface: Surface? = null
     private var pendingWidth: Int = 0
     private var pendingHeight: Int = 0
+    private var pendingDensityDpi: Int = 0
     private var metricsTickerJob: Job? = null
 
     @Synchronized
@@ -262,11 +263,17 @@ object PipelineController {
     }
 
     @Synchronized
-    fun onOverlaySurfaceAvailable(surface: Surface, width: Int, height: Int) {
+    fun onOverlaySurfaceAvailable(surface: Surface, width: Int, height: Int, densityDpi: Int = 0) {
         pendingSurface = surface
         pendingWidth = width
         pendingHeight = height
+        if (densityDpi > 0) {
+            pendingDensityDpi = densityDpi
+        }
         renderThread?.attachOutputSurface(surface, width, height)
+        if (densityDpi > 0) {
+            onDisplaySizeChanged(width, height, densityDpi)
+        }
     }
 
     @Synchronized
@@ -277,8 +284,21 @@ object PipelineController {
         renderThread?.detachOutputSurface()
     }
 
+    @Synchronized
+    fun onDisplaySizeChanged(newWidth: Int, newHeight: Int, densityDpi: Int) {
+        pendingWidth = newWidth
+        pendingHeight = newHeight
+        if (densityDpi > 0) {
+            pendingDensityDpi = densityDpi
+        }
+        val safeDpi = if (densityDpi > 0) densityDpi else pendingDensityDpi.coerceAtLeast(160)
+        FrameCaptureService.onDisplaySizeChanged(newWidth, newHeight, safeDpi)
+        renderThread?.onDisplaySizeChanged(newWidth, newHeight, safeDpi)
+    }
+
     fun onCapturedContentResized(width: Int, height: Int) {
-        renderThread?.updateCaptureSize(width, height)
+        val safeDpi = pendingDensityDpi.coerceAtLeast(160)
+        renderThread?.onDisplaySizeChanged(width, height, safeDpi)
     }
 
     fun latestMetricsSnapshot(): PipelineMetricsSnapshot {

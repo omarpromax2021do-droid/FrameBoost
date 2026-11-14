@@ -2,6 +2,7 @@ package com.framewise.app.gpu
 
 import android.content.Context
 import android.opengl.GLES30
+import android.opengl.GLES31
 import com.framewise.app.R
 import java.nio.FloatBuffer
 
@@ -18,6 +19,17 @@ class CasSynthesisShaderProgram(context: Context) {
     private val hudMaskEnabledLoc: Int = GLES30.glGetUniformLocation(programId, "uHudMaskEnabled")
     private val hudRectsLoc: Int = GLES30.glGetUniformLocation(programId, "uHudProtectedRects")
 
+    /**
+     * Binds and clears the window framebuffer before GPU draw timing begins so dequeueBuffer stalls
+     * are excluded from shader execution measurements.
+     */
+    fun prepareOutputFramebuffer(outputWidth: Int, outputHeight: Int) {
+        GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, 0)
+        GLES31.glViewport(0, 0, outputWidth.coerceAtLeast(1), outputHeight.coerceAtLeast(1))
+        GLES31.glClearColor(0f, 0f, 0f, 0f)
+        GLES31.glClear(GLES31.GL_COLOR_BUFFER_BIT)
+    }
+
     fun execute(
         quadBuffer: FloatBuffer,
         prevTexId: Int,
@@ -32,12 +44,15 @@ class CasSynthesisShaderProgram(context: Context) {
         interpolationAlpha: Float,
         casSharpness: Float,
         hudMaskEnabled: Boolean,
-        hudProtectedRects: FloatArray = DEFAULT_FPS_HUD_RECTS
+        hudProtectedRects: FloatArray = DEFAULT_FPS_HUD_RECTS,
+        clearBeforeDraw: Boolean = true
     ) {
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-        GLES30.glViewport(0, 0, outputWidth, outputHeight)
-        GLES30.glClearColor(0f, 0f, 0f, 0f)
-        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, 0)
+        GLES31.glViewport(0, 0, outputWidth.coerceAtLeast(1), outputHeight.coerceAtLeast(1))
+        if (clearBeforeDraw) {
+            GLES31.glClearColor(0f, 0f, 0f, 0f)
+            GLES31.glClear(GLES31.GL_COLOR_BUFFER_BIT)
+        }
 
         GLES30.glUseProgram(programId)
         GLES30.glEnableVertexAttribArray(posLoc)

@@ -28,7 +28,8 @@ bool isInsideProtectedHud(vec2 uv) {
 }
 
 void main() {
-    vec3 currRaw = texture(uCurrTex, vUv).rgb;
+    vec4 currSample = texture(uCurrTex, vUv);
+    vec3 currRaw = currSample.rgb;
     vec3 baseColor = currRaw;
     vec2 casSampleUv = vUv;
 
@@ -75,5 +76,5 @@ void main() {
         baseColor = clamp((baseColor + (n + s + e + w) * weight) / (1.0 + 4.0 * weight), 0.0, 1.0);
     }
 
-    fragColor = vec4(baseColor, 1.0);
+    fragColor = vec4(baseColor, currSample.a);
 }

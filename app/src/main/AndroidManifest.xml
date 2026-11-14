@@ -56,11 +56,13 @@
 
         <service
             android:name=".capture.FrameCaptureService"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
         <service
             android:name=".capture.FrameBoostOverlayService"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density"
             android:exported="true"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">

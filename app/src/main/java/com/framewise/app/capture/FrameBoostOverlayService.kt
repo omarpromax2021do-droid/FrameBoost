@@ -5,15 +5,19 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.DisplayMetrics
 import android.util.TypedValue
+import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.Surface
@@ -35,6 +39,7 @@ class FrameBoostOverlayService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
+    private var displayManager: DisplayManager? = null
 
     private var gameSurfaceView: SurfaceView? = null
     private var gameLayoutParams: WindowManager.LayoutParams? = null
@@ -47,6 +52,18 @@ class FrameBoostOverlayService : AccessibilityService() {
 
     private var currentPreferredModeId: Int = 0
     private var currentTargetHz: Float = 60f
+    private var lastKnownDisplayWidth: Int = 0
+    private var lastKnownDisplayHeight: Int = 0
+
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == Display.DEFAULT_DISPLAY) {
+                onDisplayMetricsPossiblyChanged()
+            }
+        }
+    }
 
     @Volatile
     var lastForegroundPackage: String? = null
@@ -65,6 +82,14 @@ class FrameBoostOverlayService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        displayManager = (getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)?.also { dm ->
+            dm.registerDisplayListener(displayListener, mainHandler)
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        onDisplayMetricsPossiblyChanged()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -82,6 +107,7 @@ class FrameBoostOverlayService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
+        runCatching { displayManager?.unregisterDisplayListener(displayListener) }
         removeOverlaysInternal()
         PipelineController.stopSession(this)
         if (instance === this) {
@@ -91,6 +117,7 @@ class FrameBoostOverlayService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        runCatching { displayManager?.unregisterDisplayListener(displayListener) }
         removeOverlaysInternal()
         if (instance === this) {
             instance = null
@@ -126,26 +153,45 @@ class FrameBoostOverlayService : AccessibilityService() {
     }
 
     private fun createFullScreenRenderWindow(wm: WindowManager, preferredModeId: Int) {
+        val (initialW, initialH, _) = queryCurrentDisplayMetrics(wm)
+        lastKnownDisplayWidth = initialW
+        lastKnownDisplayHeight = initialH
+
         val surfaceView = SurfaceView(this).apply {
+            alpha = 0f
             holder.setFormat(PixelFormat.TRANSLUCENT)
             holder.addCallback(object : SurfaceHolder.Callback {
                 override fun surfaceCreated(holder: SurfaceHolder) {
                     applyAdaptiveRefreshRate(holder.surface, currentTargetHz)
                     val frame = holder.surfaceFrame
+                    val (realW, realH, densityDpi) = queryCurrentDisplayMetrics(wm)
+                    val w = if (frame.width() > 1) frame.width() else realW
+                    val h = if (frame.height() > 1) frame.height() else realH
+                    lastKnownDisplayWidth = w
+                    lastKnownDisplayHeight = h
                     PipelineController.onOverlaySurfaceAvailable(
                         surface = holder.surface,
-                        width = frame.width().coerceAtLeast(1),
-                        height = frame.height().coerceAtLeast(1)
+                        width = w,
+                        height = h,
+                        densityDpi = densityDpi
                     )
                 }
 
                 override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                     applyAdaptiveRefreshRate(holder.surface, currentTargetHz)
+                    val (realW, realH, densityDpi) = queryCurrentDisplayMetrics(wm)
+                    val orientationMismatch = (realW > realH) != (width > height)
+                    val effectiveW = if (orientationMismatch) realW else width.coerceAtLeast(1)
+                    val effectiveH = if (orientationMismatch) realH else height.coerceAtLeast(1)
+                    lastKnownDisplayWidth = effectiveW
+                    lastKnownDisplayHeight = effectiveH
                     PipelineController.onOverlaySurfaceAvailable(
                         surface = holder.surface,
-                        width = width.coerceAtLeast(1),
-                        height = height.coerceAtLeast(1)
+                        width = effectiveW,
+                        height = effectiveH,
+                        densityDpi = densityDpi
                     )
+                    PipelineController.onDisplaySizeChanged(effectiveW, effectiveH, densityDpi)
                 }
 
                 override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -385,6 +431,45 @@ class FrameBoostOverlayService : AccessibilityService() {
         }
     }
 
+    private fun onDisplayMetricsPossiblyChanged() {
+        val wm = windowManager ?: return
+        val (realW, realH, densityDpi) = queryCurrentDisplayMetrics(wm)
+        if (realW == lastKnownDisplayWidth && realH == lastKnownDisplayHeight) return
+
+        lastKnownDisplayWidth = realW
+        lastKnownDisplayHeight = realH
+        gameSurfaceView?.alpha = 0f
+
+        val view = gameSurfaceView
+        val lp = gameLayoutParams
+        if (view != null && lp != null) {
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT
+            lp.height = WindowManager.LayoutParams.MATCH_PARENT
+            runCatching { wm.updateViewLayout(view, lp) }
+        }
+        PipelineController.onDisplaySizeChanged(realW, realH, densityDpi)
+    }
+
+    private fun queryCurrentDisplayMetrics(wm: WindowManager): Triple<Int, Int, Int> {
+        val densityDpi = resources.displayMetrics.densityDpi.coerceAtLeast(120)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = wm.currentWindowMetrics.bounds
+            return Triple(
+                bounds.width().coerceAtLeast(1),
+                bounds.height().coerceAtLeast(1),
+                densityDpi
+            )
+        }
+        val dm = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getRealMetrics(dm)
+        return Triple(
+            dm.widthPixels.coerceAtLeast(1),
+            dm.heightPixels.coerceAtLeast(1),
+            dm.densityDpi.coerceAtLeast(120)
+        )
+    }
+
     private fun dp(value: Int): Int {
         return TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP,
@@ -409,6 +494,17 @@ class FrameBoostOverlayService : AccessibilityService() {
             service.mainHandler.post {
                 if (service.gameSurfaceView != null) {
                     service.attachOverlaysInternal(preferredModeId, targetHz)
+                }
+            }
+        }
+
+        fun setOverlayRenderVisible(visible: Boolean) {
+            val service = instance ?: return
+            service.mainHandler.post {
+                val view = service.gameSurfaceView ?: return@post
+                val targetAlpha = if (visible) 1f else 0f
+                if (view.alpha != targetAlpha) {
+                    view.alpha = targetAlpha
                 }
             }
         }

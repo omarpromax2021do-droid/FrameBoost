@@ -18,7 +18,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
-import android.view.Display
+import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.framewise.app.MainActivity
 import com.framewise.app.R
@@ -29,6 +29,8 @@ class FrameCaptureService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var displayDensityDpi: Int = DisplayMetrics.DENSITY_DEFAULT
+    private var currentCaptureWidth: Int = 0
+    private var currentCaptureHeight: Int = 0
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -41,7 +43,7 @@ class FrameCaptureService : Service() {
             if (width <= 0 || height <= 0) return
             val evenW = (width and 1.inv()).coerceAtLeast(16)
             val evenH = (height and 1.inv()).coerceAtLeast(16)
-            virtualDisplay?.resize(evenW, evenH, displayDensityDpi)
+            resizeCaptureTarget(evenW, evenH, displayDensityDpi)
             PipelineController.onCapturedContentResized(evenW, evenH)
         }
     }
@@ -49,6 +51,7 @@ class FrameCaptureService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        instance = this
         if (intent?.action == ACTION_STOP) {
             teardownCapture()
             PipelineController.stopRenderPipelineOnly()
@@ -90,6 +93,8 @@ class FrameCaptureService : Service() {
         projection.registerCallback(projectionCallback, mainHandler)
 
         val (captureW, captureH, densityDpi) = resolveCaptureMetrics()
+        currentCaptureWidth = captureW
+        currentCaptureHeight = captureH
         displayDensityDpi = densityDpi
 
         PipelineController.startRenderPipeline(
@@ -130,6 +135,9 @@ class FrameCaptureService : Service() {
 
     override fun onDestroy() {
         teardownCapture()
+        if (instance === this) {
+            instance = null
+        }
         super.onDestroy()
     }
 
@@ -180,13 +188,38 @@ class FrameCaptureService : Service() {
         }
     }
 
+    private fun resizeCaptureTarget(newWidth: Int, newHeight: Int, densityDpi: Int) {
+        val evenW = (newWidth and 1.inv()).coerceAtLeast(16)
+        val evenH = (newHeight and 1.inv()).coerceAtLeast(16)
+        val safeDpi = densityDpi.coerceAtLeast(DisplayMetrics.DENSITY_MEDIUM)
+        if (evenW == currentCaptureWidth && evenH == currentCaptureHeight && safeDpi == displayDensityDpi) {
+            return
+        }
+        currentCaptureWidth = evenW
+        currentCaptureHeight = evenH
+        displayDensityDpi = safeDpi
+        virtualDisplay?.resize(evenW, evenH, safeDpi)
+    }
+
     private fun resolveCaptureMetrics(): Triple<Int, Int, Int> {
         val dm = resources.displayMetrics
-        val displayManager = getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
-        val display = displayManager?.getDisplay(Display.DEFAULT_DISPLAY)
-        val mode = display?.mode
-        val rawW = mode?.physicalWidth ?: dm.widthPixels
-        val rawH = mode?.physicalHeight ?: dm.heightPixels
+        val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+        val rawW: Int
+        val rawH: Int
+        if (wm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = wm.currentWindowMetrics.bounds
+            rawW = bounds.width()
+            rawH = bounds.height()
+        } else if (wm != null) {
+            val realMetrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealMetrics(realMetrics)
+            rawW = realMetrics.widthPixels
+            rawH = realMetrics.heightPixels
+        } else {
+            rawW = dm.widthPixels
+            rawH = dm.heightPixels
+        }
         val evenW = (rawW and 1.inv()).coerceAtLeast(16)
         val evenH = (rawH and 1.inv()).coerceAtLeast(16)
         return Triple(evenW, evenH, dm.densityDpi.coerceAtLeast(DisplayMetrics.DENSITY_MEDIUM))
@@ -221,6 +254,16 @@ class FrameCaptureService : Service() {
 
         private const val CHANNEL_ID = "framewise_capture_channel"
         private const val NOTIFICATION_ID = 4102
+
+        @Volatile
+        private var instance: FrameCaptureService? = null
+
+        fun onDisplaySizeChanged(newWidth: Int, newHeight: Int, densityDpi: Int) {
+            val service = instance ?: return
+            service.mainHandler.post {
+                service.resizeCaptureTarget(newWidth, newHeight, densityDpi)
+            }
+        }
 
         fun createCaptureConsentIntent(context: Context): Intent {
             val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
