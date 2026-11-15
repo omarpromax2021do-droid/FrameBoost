@@ -5,6 +5,7 @@ import android.content.Intent
 import android.view.Surface
 import com.framewise.app.autopilot.AutoPilotManager
 import com.framewise.app.autopilot.BoostReport
+import com.framewise.app.autopilot.OemBoosterSuppressor
 import com.framewise.app.autopilot.ResolvedAutoPilotPreset
 import com.framewise.app.autopilot.SystemOptimizer
 import com.framewise.app.autopilot.ThermalGuardMonitor
@@ -94,6 +95,7 @@ object PipelineController {
     private var pendingHeight: Int = 0
     private var pendingDensityDpi: Int = 0
     private var metricsTickerJob: Job? = null
+    private var oemSuppressorJob: Job? = null
 
     fun currentMotionScalePercent(): Int = currentLiveConfig.motionScalePercent
 
@@ -291,6 +293,7 @@ object PipelineController {
         targetHz: Float,
         preferredModeId: Int,
         presetLabel: String,
+        captureThreadTid: Int = -1,
         onInputSurfaceReady: (Surface) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -312,6 +315,7 @@ object PipelineController {
             initialHeight = captureHeight,
             metricsTracker = metricsTracker,
             initialConfig = currentLiveConfig,
+            captureThreadTid = captureThreadTid,
             onInputSurfaceReady = { inputSurface ->
                 pendingSurface?.let { surf ->
                     if (surf.isValid && pendingWidth > 0 && pendingHeight > 0) {
@@ -328,9 +332,20 @@ object PipelineController {
         renderThread = thread
         thread.start()
 
+        val appContext = context.applicationContext
         val surfaceRate = resolveSurfaceFrameRate(currentLiveConfig)
-        DisplayRefreshController.applyTargetRefreshRate(context, surfaceRate)
+        DisplayRefreshController.applyTargetRefreshRate(appContext, surfaceRate)
         FrameBoostOverlayService.showOverlays(preferredModeId = preferredModeId, targetHz = surfaceRate)
+
+        oemSuppressorJob = scope.launch(Dispatchers.IO) {
+            while (isActive && renderThread != null) {
+                OemBoosterSuppressor.suppressCompetingBoosters(
+                    context = appContext,
+                    activeGamePackage = _foregroundPackage.value
+                )
+                delay(40_000L)
+            }
+        }
 
         metricsTickerJob = scope.launch {
             while (isActive && renderThread != null) {
@@ -403,6 +418,8 @@ object PipelineController {
 
     @Synchronized
     fun stopRenderPipelineOnly() {
+        oemSuppressorJob?.cancel()
+        oemSuppressorJob = null
         metricsTickerJob?.cancel()
         metricsTickerJob = null
         renderThread?.shutdown()

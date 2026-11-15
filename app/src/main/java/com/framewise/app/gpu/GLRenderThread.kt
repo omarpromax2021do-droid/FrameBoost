@@ -77,6 +77,7 @@ class GLRenderThread(
     initialHeight: Int,
     private val metricsTracker: MetricsTracker,
     initialConfig: LiveRenderConfig,
+    private val captureThreadTid: Int = -1,
     private val onInputSurfaceReady: (Surface) -> Unit,
     private val onError: (String) -> Unit
 ) : HandlerThread("FramewiseGLRenderThread"),
@@ -131,6 +132,7 @@ class GLRenderThread(
     private var casSynthesisProgram: CasSynthesisShaderProgram? = null
     private val framePacer = FramePacer()
     private val smartGateController = SmartGateController()
+    private val adpfSessionManager = AdpfSessionManager()
 
     private lateinit var quadBuffer: FloatBuffer
 
@@ -142,9 +144,14 @@ class GLRenderThread(
     private var renderedFrameCount: Long = 0L
 
     override fun onLooperPrepared() {
-        // Elevate render thread priority so OEM game boosters do not throttle presentation cadence.
+        // Elevate render thread priority and bind ADPF hint session so OEM daemons cannot throttle cadence.
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
         renderHandler = Handler(looper)
+        adpfSessionManager.startSession(
+            context = context,
+            threadTids = intArrayOf(Process.myTid(), captureThreadTid),
+            targetHz = liveConfigRef.get().targetPanelHz
+        )
         try {
             initEgl()
             initGlResources()
@@ -160,6 +167,11 @@ class GLRenderThread(
 
     fun updateLiveConfig(newConfig: LiveRenderConfig) {
         val prevConfig = liveConfigRef.getAndSet(newConfig)
+        if (prevConfig.targetPanelHz != newConfig.targetPanelHz && ::renderHandler.isInitialized) {
+            renderHandler.post {
+                adpfSessionManager.updateTargetFrameRate(newConfig.targetPanelHz)
+            }
+        }
         val prevSpatial = DisplayResizeState.spatialCaptureScalePercent(prevConfig.motionScalePercent)
         val nextSpatial = DisplayResizeState.spatialCaptureScalePercent(newConfig.motionScalePercent)
         if (prevSpatial != nextSpatial && ::renderHandler.isInitialized) {
@@ -479,6 +491,7 @@ class GLRenderThread(
             updateOverlayVisibility(true)
 
             val swapDoneNs = System.nanoTime()
+            adpfSessionManager.reportActualWorkDuration(swapDoneNs - gpuDrawStartNs)
             metricsTracker.recordOutputFrame(
                 swapCompletionNs = swapDoneNs,
                 gpuShaderTimeMs = lastMeasuredGpuPassMs,
@@ -675,6 +688,7 @@ class GLRenderThread(
     private fun cleanupInternal() {
         framePacer.reset()
         smartGateController.reset()
+        adpfSessionManager.close()
         if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
             if (pbufferSurface != EGL14.EGL_NO_SURFACE) {
                 EGL14.eglMakeCurrent(eglDisplay, pbufferSurface, pbufferSurface, eglContext)

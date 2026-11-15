@@ -94,7 +94,7 @@ object AutoPilotManager {
                     category = GameProfileCategory.CUSTOM,
                     mode = mode,
                     motionScalePercent = 25,
-                    casSharpness = 0.75f,
+                    casSharpness = 0.80f,
                     targetFps = 60,
                     hudMaskEnabled = true,
                     hudZones = userHudZones,

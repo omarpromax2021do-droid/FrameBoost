@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
@@ -30,6 +31,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityManager
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import com.framewise.app.R
 import com.framewise.app.autopilot.AutoPilotManager
 import com.framewise.app.gpu.DisplayResizeState
@@ -275,6 +277,7 @@ class FrameBoostOverlayService : AccessibilityService() {
         }
 
         wm.addView(surfaceView, params)
+        applyEdgeGestureExclusions(surfaceView, fullWindow = true)
         gameSurfaceView = surfaceView
         gameLayoutParams = params
     }
@@ -484,6 +487,7 @@ class FrameBoostOverlayService : AccessibilityService() {
         }
 
         wm.addView(root, params)
+        applyEdgeGestureExclusions(root, fullWindow = false)
         hudContainer = root
         hudLayoutParams = params
         hudTitleView = titleView
@@ -499,6 +503,33 @@ class FrameBoostOverlayService : AccessibilityService() {
         mainHandler.removeCallbacks(hudUpdateRunnable)
         mainHandler.postDelayed(hudUpdateRunnable, 250L)
         scheduleAutoCollapse()
+    }
+
+    private fun applyEdgeGestureExclusions(view: View, fullWindow: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val updateExclusion: (View) -> Unit = { target ->
+            val w = target.width
+            val h = target.height
+            if (w > 0 && h > 0) {
+                val rects = if (fullWindow) {
+                    // Exclude left and right 200dp vertical edge strips to block competing OEM game sidebars.
+                    val stripW = dp(32).coerceAtMost(w)
+                    val stripH = dp(200).coerceAtMost(h)
+                    val top = ((h - stripH) / 2).coerceAtLeast(0)
+                    listOf(
+                        Rect(0, top, stripW, top + stripH),
+                        Rect(w - stripW, top, w, top + stripH)
+                    )
+                } else {
+                    listOf(Rect(0, 0, w, h))
+                }
+                ViewCompat.setSystemGestureExclusionRects(target, rects)
+            }
+        }
+        view.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            updateExclusion(v)
+        }
+        view.post { updateExclusion(view) }
     }
 
     private fun setHudExpanded(expanded: Boolean) {
@@ -566,8 +597,9 @@ class FrameBoostOverlayService : AccessibilityService() {
             title.text = if (hudExpanded) {
                 getString(R.string.app_name)
             } else {
-                val fpsInt = if (m.outputFps >= 1f) m.outputFps.roundToInt() else currentTargetHz.roundToInt()
-                "⚡ $fpsInt FPS"
+                val baseInt = m.captureFps.roundToInt()
+                val outInt = if (m.outputFps >= 1f) m.outputFps.roundToInt() else currentTargetHz.roundToInt()
+                "⚡ ${baseInt}→${outInt} FPS • ${m.activePreset}"
             }
         }
         if (!hudExpanded) return

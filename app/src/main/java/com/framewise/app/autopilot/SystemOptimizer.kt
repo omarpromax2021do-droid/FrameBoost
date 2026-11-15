@@ -38,6 +38,7 @@ object SystemOptimizer {
                 }.getOrDefault(false)
                 if (cleared) killedCount++
             }
+            killedCount += OemBoosterSuppressor.suppressCompetingBoosters(context, targetPackage)
         }
 
         val afterMb = readAvailableMemoryMb(am)

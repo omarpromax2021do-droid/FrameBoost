@@ -160,7 +160,7 @@
 
     <!-- Phase 4: Auto-Pilot, HUD Editor, RAM Booster, Thermal Guard & Benchmark -->
     <string name="capture_phase4_note">v1.0.2 Active: Event-Driven Optical Flow + AMD FSR 1.0 &amp; CAS + Auto HUD Guard + 120Hz/144Hz+ Lock.</string>
-    <string name="low_battery_advisory_tip">💡 Tip: Using high-refresh interpolation with battery above 20% is recommended to avoid system voltage throttling.</string>
+    <string name="low_battery_advisory_tip">💡 Tip: Using high-refresh interpolation with battery above 20% is recommended to avoid system voltage throttling and maintain full CPU/GPU power.</string>
     <string name="settings_cas_normalized_note" formatted="false">UI 0%–100% scales safely to internal CAS weight 0.00–0.35 (zero halo artifacts).</string>
     <string name="settings_write_settings_granted">System Refresh Lock: Granted</string>
     <string name="settings_write_settings_grant">Allow System Refresh Rate Lock</string>

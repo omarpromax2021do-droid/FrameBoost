@@ -15,18 +15,26 @@ import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import android.os.Process
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.framewise.app.MainActivity
 import com.framewise.app.R
 import com.framewise.app.gpu.DisplayResizeState
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class FrameCaptureService : Service() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var captureThread: HandlerThread? = null
+    private var captureHandler: Handler? = null
+    private val captureThreadTid = AtomicInteger(-1)
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var displayDensityDpi: Int = DisplayMetrics.DENSITY_DEFAULT
@@ -34,6 +42,22 @@ class FrameCaptureService : Service() {
     private var currentRawHeight: Int = 0
     private var currentCaptureWidth: Int = 0
     private var currentCaptureHeight: Int = 0
+
+    override fun onCreate() {
+        super.onCreate()
+        val readyLatch = CountDownLatch(1)
+        val thread = object : HandlerThread("FramewiseCaptureThread") {
+            override fun onLooperPrepared() {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+                captureThreadTid.set(Process.myTid())
+                readyLatch.countDown()
+            }
+        }
+        thread.start()
+        readyLatch.await(150L, TimeUnit.MILLISECONDS)
+        captureThread = thread
+        captureHandler = Handler(thread.looper)
+    }
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -94,9 +118,10 @@ class FrameCaptureService : Service() {
             return START_NOT_STICKY
         }
 
+        val activeCaptureHandler = captureHandler ?: mainHandler
         mediaProjection = projection
         // Android 14+ requires registering callback before createVirtualDisplay.
-        projection.registerCallback(projectionCallback, mainHandler)
+        projection.registerCallback(projectionCallback, activeCaptureHandler)
 
         val (rawW, rawH, densityDpi) = resolveCaptureMetrics()
         val motionScale = PipelineController.currentMotionScalePercent()
@@ -114,8 +139,9 @@ class FrameCaptureService : Service() {
             targetHz = targetHz,
             preferredModeId = preferredModeId,
             presetLabel = presetLabel,
+            captureThreadTid = captureThreadTid.get().takeIf { it > 0 } ?: Process.myTid(),
             onInputSurfaceReady = { inputSurface ->
-                mainHandler.post {
+                activeCaptureHandler.post {
                     val activeProjection = mediaProjection ?: return@post
                     if (virtualDisplay == null) {
                         virtualDisplay = activeProjection.createVirtualDisplay(
@@ -126,7 +152,7 @@ class FrameCaptureService : Service() {
                             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                             inputSurface,
                             null,
-                            mainHandler
+                            activeCaptureHandler
                         )
                     }
                 }
@@ -145,6 +171,9 @@ class FrameCaptureService : Service() {
 
     override fun onDestroy() {
         teardownCapture()
+        captureThread?.quitSafely()
+        captureThread = null
+        captureHandler = null
         if (instance === this) {
             instance = null
         }

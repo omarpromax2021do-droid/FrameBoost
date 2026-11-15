@@ -5,10 +5,11 @@ import android.provider.Settings
 
 object DisplayRefreshController {
 
-    private val SYSTEM_REFRESH_KEYS = arrayOf(
+    internal val SYSTEM_REFRESH_KEYS = arrayOf(
         "min_refresh_rate",
         "peak_refresh_rate",
-        "user_refresh_rate"
+        "user_refresh_rate",
+        "ScreenRefreshRate"
     )
 
     private val lock = Any()
