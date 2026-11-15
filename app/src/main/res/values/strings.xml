@@ -45,6 +45,8 @@
     <string name="perm_notifications_desc">Required to run the persistent Foreground Capture &amp; GPU Pacing notification cleanly.</string>
     <string name="perm_battery_title">Unrestricted Battery Usage</string>
     <string name="perm_battery_desc">Prevents Android Doze from throttling the GPU render thread during long gaming sessions.</string>
+    <string name="perm_write_settings_title">System Refresh Rate Lock (60Hz ↔ 120Hz/144Hz+)</string>
+    <string name="perm_write_settings_desc">Allows Framewise to lock peak display refresh rate in Android system settings during gameplay and restore it on exit.</string>
 
     <string name="onboarding_s4_title">3-Second GPU Calibration</string>
     <string name="onboarding_s4_desc">Run a real 3.0-second offscreen OpenGL ES shader benchmark on your GPU to measure pass timing and configure optimal presets automatically.</string>
@@ -157,7 +159,15 @@
     <string name="telemetry_smart_gate">SmartGate Status</string>
 
     <!-- Phase 4: Auto-Pilot, HUD Editor, RAM Booster, Thermal Guard & Benchmark -->
-    <string name="capture_phase4_note">Phase 4 Ready: Optical Flow + AMD CAS + Auto-Pilot (CODM/RDR1) + RAM Optimizer + Thermal Guard.</string>
+    <string name="capture_phase4_note">v1.0.2 Active: Event-Driven Optical Flow + AMD FSR 1.0 &amp; CAS + Auto HUD Guard + 120Hz/144Hz+ Lock.</string>
+    <string name="low_battery_advisory_tip">💡 Tip: Using high-refresh interpolation with battery above 20% is recommended to avoid system voltage throttling.</string>
+    <string name="settings_cas_normalized_note" formatted="false">UI 0%–100% scales safely to internal CAS weight 0.00–0.35 (zero halo artifacts).</string>
+    <string name="settings_write_settings_granted">System Refresh Lock: Granted</string>
+    <string name="settings_write_settings_grant">Allow System Refresh Rate Lock</string>
+    <string name="hud_mode_120_boost">120Hz+ Boost</string>
+    <string name="hud_mode_60_smooth">60Hz Smooth</string>
+    <string name="hud_mode_fsr_cas">FSR + CAS Only</string>
+    <string name="hud_mode_auto">Auto</string>
     <string name="btn_open_benchmark">Split-Screen Benchmark</string>
     <string name="btn_boost_ram">Boost RAM &amp; Clean Cache</string>
     <string name="btn_boost_launch">Boost &amp; Launch</string>
@@ -168,8 +178,6 @@
     <string name="btn_reset_defaults">Defaults</string>
     <string name="btn_remove">Remove</string>
 
-    <string name="boost_toast_format">Freed %1$d MB RAM (%2$d MB free) • GameMode: %3$s</string>
-    <string name="autopilot_toast_format">Auto-Pilot: %1$s • Freed %2$d MB RAM • GameMode: %3$s</string>
     <string name="autopilot_active_profile">Foreground Auto-Pilot: %1$s (%2$s)</string>
     <string name="autopilot_custom_games_title">Custom Game Profiles</string>
 

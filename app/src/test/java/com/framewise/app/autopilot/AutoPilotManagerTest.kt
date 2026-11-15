@@ -108,4 +108,68 @@ class AutoPilotManagerTest {
         assertEquals(60, cappedPreset.targetFps)
         assertEquals(0.72f, cappedPreset.casSharpness, 0.001f)
     }
+
+    @Test
+    fun universalGameClassifier_andSessionCooldown_preventRepeatTriggers() {
+        assertEquals(
+            GameCadenceClass.CONSOLE_30_FPS,
+            UniversalGameClassifier.classifyCadence("com.miHoYo.GenshinImpact", observedCaptureFps = 0f)
+        )
+        assertEquals(
+            GameCadenceClass.COMPETITIVE_HIGH_FPS,
+            UniversalGameClassifier.classifyCadence("com.activision.callofduty.shooter", observedCaptureFps = 58f)
+        )
+
+        val t0 = 10_000_000L
+        val cooldowns = mapOf("com.activision.callofduty.shooter" to t0)
+
+        assertFalse(
+            AutoPilotManager.shouldTriggerGameSession(
+                packageName = "com.activision.callofduty.shooter",
+                nowMs = t0 + 1_000L,
+                lastActiveGamePackage = "com.activision.callofduty.shooter",
+                cooldownTimestamps = cooldowns
+            )
+        )
+        assertFalse(
+            AutoPilotManager.shouldTriggerGameSession(
+                packageName = "com.activision.callofduty.shooter",
+                nowMs = t0 + 60_000L,
+                lastActiveGamePackage = "com.motorola.launcher3",
+                cooldownTimestamps = cooldowns
+            )
+        )
+        assertTrue(
+            AutoPilotManager.shouldTriggerGameSession(
+                packageName = "com.activision.callofduty.shooter",
+                nowMs = t0 + AutoPilotManager.GAME_SESSION_COOLDOWN_MS + 1L,
+                lastActiveGamePackage = "com.motorola.launcher3",
+                cooldownTimestamps = cooldowns
+            )
+        )
+
+        val universal144 = AutoPilotManager.resolvePresetForPackage(
+            packageName = "com.indie.fps.arena",
+            hardwareTier = HardwareTier.HIGH_FLAGSHIP,
+            maxRefreshHz = 144f,
+            isSystemCategorizedGame = true,
+            appLabel = "Indie Arena",
+            observedCaptureFps = 60f
+        )
+        assertNotNull(universal144)
+        assertEquals(InterpolationMode.COMPETITIVE_60_120, universal144!!.mode)
+        assertEquals(144, universal144.targetFps)
+
+        val universal30 = AutoPilotManager.resolvePresetForPackage(
+            packageName = "com.indie.openworld.rpg",
+            hardwareTier = HardwareTier.MID_RANGE_120HZ,
+            maxRefreshHz = 120f,
+            isSystemCategorizedGame = true,
+            appLabel = "Open World RPG",
+            observedCaptureFps = 30f
+        )
+        assertNotNull(universal30)
+        assertEquals(InterpolationMode.CONSOLE_30_60, universal30!!.mode)
+        assertEquals(60, universal30.targetFps)
+    }
 }

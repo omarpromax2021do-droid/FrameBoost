@@ -136,6 +136,7 @@ class MainActivity : AppCompatActivity() {
                             onRemoveCustomGame = viewModel::removeCustomGameProfile,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onSelectMode = viewModel::setInterpolationMode,
+                            onToggleAutoPilot = viewModel::setAutoPilotEnabled,
                             onToggleSession = {
                                 val current = uiState.sessionState
                                 if (current is PipelineSessionState.Running || current is PipelineSessionState.Starting) {

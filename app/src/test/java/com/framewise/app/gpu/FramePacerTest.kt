@@ -90,6 +90,7 @@ class FramePacerTest {
         assertEquals(FrameOutputType.REAL_PASSTHROUGH, stabilizer.outputType)
         assertFalse(stabilizer.runMotionEstimationPass)
 
+        pacer.onNewCaptureFrameArrived()
         val bypassed = pacer.evaluateVsyncTick(
             frameTimeNs = 3_016_666_666L,
             mode = InterpolationMode.COMPETITIVE_60_120,
@@ -98,5 +99,32 @@ class FramePacerTest {
         )
         assertEquals(FrameOutputType.REAL_PASSTHROUGH, bypassed.outputType)
         assertFalse(bypassed.runMotionEstimationPass)
+    }
+
+    @Test
+    fun eventDrivenPacing_stopsPendingWorkAfterFramePairCompletes() {
+        val pacer = FramePacer()
+        assertFalse(pacer.hasPendingWork())
+
+        pacer.onNewCaptureFrameArrived()
+        assertTrue(pacer.hasPendingWork())
+        val firstReal = pacer.evaluateVsyncTick(3_900_000_000L, InterpolationMode.COMPETITIVE_60_120, false, 120f)
+        assertEquals(FrameOutputType.REAL_PASSTHROUGH, firstReal.outputType)
+        assertFalse(pacer.hasPendingWork())
+
+        pacer.onNewCaptureFrameArrived()
+        assertTrue(pacer.hasPendingWork())
+
+        val t0 = 4_000_000_000L
+        val synthesized = pacer.evaluateVsyncTick(t0, InterpolationMode.COMPETITIVE_60_120, false, 120f)
+        assertEquals(FrameOutputType.SYNTHESIZED_INTERMEDIATE, synthesized.outputType)
+        assertTrue(pacer.hasPendingWork())
+
+        val real = pacer.evaluateVsyncTick(t0 + 8_333_333L, InterpolationMode.COMPETITIVE_60_120, false, 120f)
+        assertEquals(FrameOutputType.REAL_PASSTHROUGH, real.outputType)
+        assertFalse(pacer.hasPendingWork())
+
+        val idle = pacer.evaluateVsyncTick(t0 + 16_666_666L, InterpolationMode.COMPETITIVE_60_120, false, 120f)
+        assertEquals(FrameOutputType.SKIP_TICK, idle.outputType)
     }
 }

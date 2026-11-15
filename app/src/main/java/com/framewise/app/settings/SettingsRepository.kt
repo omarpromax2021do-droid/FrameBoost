@@ -32,6 +32,7 @@ class SettingsRepository(private val context: Context) {
         val TARGET_FPS = intPreferencesKey("target_fps")
         val PREFERRED_DISPLAY_MODE_ID = intPreferencesKey("preferred_display_mode_id")
         val AUTO_PILOT_ENABLED = booleanPreferencesKey("auto_pilot_enabled")
+        val MANUAL_OVERRIDE_ACTIVE = booleanPreferencesKey("manual_override_active")
         val HUD_MASK_ENABLED = booleanPreferencesKey("hud_mask_enabled")
         val THERMAL_GUARD_ENABLED = booleanPreferencesKey("thermal_guard_enabled")
         val SMART_GATE_ENABLED = booleanPreferencesKey("smart_gate_enabled")
@@ -55,7 +56,8 @@ class SettingsRepository(private val context: Context) {
             casSharpness = (prefs[Keys.CAS_SHARPNESS] ?: 0.65f).coerceIn(0f, 1f),
             targetFps = prefs[Keys.TARGET_FPS] ?: 60,
             preferredDisplayModeId = prefs[Keys.PREFERRED_DISPLAY_MODE_ID] ?: 0,
-            autoPilotEnabled = prefs[Keys.AUTO_PILOT_ENABLED] ?: true,
+            autoPilotEnabled = prefs[Keys.AUTO_PILOT_ENABLED] ?: false,
+            manualOverrideActive = prefs[Keys.MANUAL_OVERRIDE_ACTIVE] ?: !(prefs[Keys.AUTO_PILOT_ENABLED] ?: false),
             hudMaskEnabled = prefs[Keys.HUD_MASK_ENABLED] ?: true,
             thermalGuardEnabled = prefs[Keys.THERMAL_GUARD_ENABLED] ?: true,
             smartGateEnabled = prefs[Keys.SMART_GATE_ENABLED] ?: true,
@@ -81,7 +83,11 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setInterpolationMode(mode: InterpolationMode) {
-        context.framewiseDataStore.edit { it[Keys.INTERPOLATION_MODE] = mode.name }
+        context.framewiseDataStore.edit {
+            it[Keys.INTERPOLATION_MODE] = mode.name
+            it[Keys.MANUAL_OVERRIDE_ACTIVE] = true
+            it[Keys.AUTO_PILOT_ENABLED] = false
+        }
     }
 
     suspend fun setMotionScalePercent(scale: Int) {
@@ -89,22 +95,35 @@ class SettingsRepository(private val context: Context) {
             25, 40, 60 -> scale
             else -> 40
         }
-        context.framewiseDataStore.edit { it[Keys.MOTION_SCALE_PERCENT] = clamped }
+        context.framewiseDataStore.edit {
+            it[Keys.MOTION_SCALE_PERCENT] = clamped
+            it[Keys.MANUAL_OVERRIDE_ACTIVE] = true
+            it[Keys.AUTO_PILOT_ENABLED] = false
+        }
     }
 
     suspend fun setCasSharpness(strength: Float) {
-        context.framewiseDataStore.edit { it[Keys.CAS_SHARPNESS] = strength.coerceIn(0f, 1f) }
+        context.framewiseDataStore.edit {
+            it[Keys.CAS_SHARPNESS] = strength.coerceIn(0f, 1f)
+            it[Keys.MANUAL_OVERRIDE_ACTIVE] = true
+            it[Keys.AUTO_PILOT_ENABLED] = false
+        }
     }
 
     suspend fun setTargetFps(targetFps: Int, preferredModeId: Int = 0) {
         context.framewiseDataStore.edit {
             it[Keys.TARGET_FPS] = targetFps
             it[Keys.PREFERRED_DISPLAY_MODE_ID] = preferredModeId
+            it[Keys.MANUAL_OVERRIDE_ACTIVE] = true
+            it[Keys.AUTO_PILOT_ENABLED] = false
         }
     }
 
     suspend fun setAutoPilotEnabled(enabled: Boolean) {
-        context.framewiseDataStore.edit { it[Keys.AUTO_PILOT_ENABLED] = enabled }
+        context.framewiseDataStore.edit {
+            it[Keys.AUTO_PILOT_ENABLED] = enabled
+            it[Keys.MANUAL_OVERRIDE_ACTIVE] = !enabled
+        }
     }
 
     suspend fun setHudMaskEnabled(enabled: Boolean) {

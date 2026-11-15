@@ -13,16 +13,15 @@ class CasSynthesisShaderProgram(context: Context) {
     private val currTexLoc: Int = GLES30.glGetUniformLocation(programId, "uCurrTex")
     private val motionTexLoc: Int = GLES30.glGetUniformLocation(programId, "uMotionTex")
     private val texelSizeLoc: Int = GLES30.glGetUniformLocation(programId, "uTexelSize")
+    private val outputTexelSizeLoc: Int = GLES30.glGetUniformLocation(programId, "uOutputTexelSize")
     private val motionTexelSizeLoc: Int = GLES30.glGetUniformLocation(programId, "uMotionTexelSize")
     private val alphaLoc: Int = GLES30.glGetUniformLocation(programId, "uInterpolationAlpha")
     private val casLoc: Int = GLES30.glGetUniformLocation(programId, "uCasSharpness")
+    private val fsrUpscaleActiveLoc: Int = GLES30.glGetUniformLocation(programId, "uFsrUpscaleActive")
     private val hudMaskEnabledLoc: Int = GLES30.glGetUniformLocation(programId, "uHudMaskEnabled")
     private val hudRectsLoc: Int = GLES30.glGetUniformLocation(programId, "uHudProtectedRects")
 
-    /**
-     * Binds and clears the window framebuffer before GPU draw timing begins so dequeueBuffer stalls
-     * are excluded from shader execution measurements.
-     */
+    // Clear default window FBO before GPU draw timing so dequeueBuffer stalls do not pollute shader metrics.
     fun prepareOutputFramebuffer(outputWidth: Int, outputHeight: Int) {
         GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, 0)
         GLES31.glViewport(0, 0, outputWidth.coerceAtLeast(1), outputHeight.coerceAtLeast(1))
@@ -47,8 +46,13 @@ class CasSynthesisShaderProgram(context: Context) {
         hudProtectedRects: FloatArray = DEFAULT_FPS_HUD_RECTS,
         clearBeforeDraw: Boolean = true
     ) {
+        val safeOutW = outputWidth.coerceAtLeast(1)
+        val safeOutH = outputHeight.coerceAtLeast(1)
+        val safeCapW = captureWidth.coerceAtLeast(1)
+        val safeCapH = captureHeight.coerceAtLeast(1)
+
         GLES31.glBindFramebuffer(GLES31.GL_FRAMEBUFFER, 0)
-        GLES31.glViewport(0, 0, outputWidth.coerceAtLeast(1), outputHeight.coerceAtLeast(1))
+        GLES31.glViewport(0, 0, safeOutW, safeOutH)
         if (clearBeforeDraw) {
             GLES31.glClearColor(0f, 0f, 0f, 0f)
             GLES31.glClear(GLES31.GL_COLOR_BUFFER_BIT)
@@ -71,18 +75,21 @@ class CasSynthesisShaderProgram(context: Context) {
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, motionTexId)
         GLES30.glUniform1i(motionTexLoc, 2)
 
-        GLES30.glUniform2f(
-            texelSizeLoc,
-            1f / captureWidth.coerceAtLeast(1),
-            1f / captureHeight.coerceAtLeast(1)
-        )
+        GLES30.glUniform2f(texelSizeLoc, 1f / safeCapW, 1f / safeCapH)
+        if (outputTexelSizeLoc >= 0) {
+            GLES30.glUniform2f(outputTexelSizeLoc, 1f / safeOutW, 1f / safeOutH)
+        }
         GLES30.glUniform2f(
             motionTexelSizeLoc,
             1f / motionWidth.coerceAtLeast(1),
             1f / motionHeight.coerceAtLeast(1)
         )
         GLES30.glUniform1f(alphaLoc, interpolationAlpha.coerceIn(0f, 1f))
-        GLES30.glUniform1f(casLoc, casSharpness.coerceIn(0f, 1f))
+        GLES30.glUniform1f(casLoc, normalizeCasWeight(casSharpness))
+        if (fsrUpscaleActiveLoc >= 0) {
+            val fsrActive = if (safeCapW < safeOutW || safeCapH < safeOutH) 1 else 0
+            GLES30.glUniform1i(fsrUpscaleActiveLoc, fsrActive)
+        }
         GLES30.glUniform1i(hudMaskEnabledLoc, if (hudMaskEnabled) 1 else 0)
         GLES30.glUniform4fv(hudRectsLoc, 4, hudProtectedRects, 0)
 
@@ -103,7 +110,12 @@ class CasSynthesisShaderProgram(context: Context) {
     }
 
     companion object {
-        // Normalized UV rects (minX, minY, maxX, maxY): center crosshair, minimap, left & right thumb zones.
+        const val MAX_INTERNAL_CAS_WEIGHT = 0.35f
+
+        fun normalizeCasWeight(uiCasSlider: Float): Float {
+            return uiCasSlider.coerceIn(0f, 1f) * MAX_INTERNAL_CAS_WEIGHT
+        }
+
         val DEFAULT_FPS_HUD_RECTS = floatArrayOf(
             0.46f, 0.46f, 0.54f, 0.54f,
             0.00f, 0.72f, 0.24f, 1.00f,

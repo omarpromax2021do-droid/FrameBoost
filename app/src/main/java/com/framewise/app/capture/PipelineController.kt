@@ -2,20 +2,17 @@ package com.framewise.app.capture
 
 import android.content.Context
 import android.content.Intent
-import android.os.Handler
-import android.os.Looper
 import android.view.Surface
-import android.widget.Toast
-import com.framewise.app.R
 import com.framewise.app.autopilot.AutoPilotManager
 import com.framewise.app.autopilot.BoostReport
 import com.framewise.app.autopilot.ResolvedAutoPilotPreset
 import com.framewise.app.autopilot.SystemOptimizer
 import com.framewise.app.autopilot.ThermalGuardMonitor
 import com.framewise.app.autopilot.ThermalGuardState
+import com.framewise.app.autopilot.UniversalGameClassifier
 import com.framewise.app.device.DeviceHardwareProfile
-import com.framewise.app.device.HardwareTier
 import com.framewise.app.device.InterpolationMode
+import com.framewise.app.gpu.DisplayResizeState
 import com.framewise.app.gpu.GLRenderThread
 import com.framewise.app.gpu.LiveRenderConfig
 import com.framewise.app.gpu.MetricsTracker
@@ -32,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 sealed interface PipelineSessionState {
     data object Idle : PipelineSessionState
@@ -40,10 +38,17 @@ sealed interface PipelineSessionState {
     data class Error(val message: String) : PipelineSessionState
 }
 
+enum class HudQuickMode {
+    BOOST_120_PLUS,
+    SMOOTH_60,
+    FSR_CAS_ONLY,
+    AUTO
+}
+
 object PipelineController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val mainHandler = Handler(Looper.getMainLooper())
     private val metricsTracker = MetricsTracker()
+    private val packageCooldownTimestamps = ConcurrentHashMap<String, Long>()
 
     private val _sessionState = MutableStateFlow<PipelineSessionState>(PipelineSessionState.Idle)
     val sessionState: StateFlow<PipelineSessionState> = _sessionState.asStateFlow()
@@ -79,7 +84,7 @@ object PipelineController {
     private var latestProfile: DeviceHardwareProfile? = null
 
     @Volatile
-    private var lastBoostedPackage: String? = null
+    private var lastActiveGamePackage: String? = null
 
     private var thermalMonitor: ThermalGuardMonitor? = null
     private var thermalCollectJob: Job? = null
@@ -89,6 +94,21 @@ object PipelineController {
     private var pendingHeight: Int = 0
     private var pendingDensityDpi: Int = 0
     private var metricsTickerJob: Job? = null
+
+    fun currentMotionScalePercent(): Int = currentLiveConfig.motionScalePercent
+
+    fun isAutoPilotActive(): Boolean {
+        return latestSettings.autoPilotEnabled && !latestSettings.manualOverrideActive
+    }
+
+    fun activeQuickMode(): HudQuickMode {
+        if (isAutoPilotActive()) return HudQuickMode.AUTO
+        return when (currentLiveConfig.mode) {
+            InterpolationMode.COMPETITIVE_60_120 -> HudQuickMode.BOOST_120_PLUS
+            InterpolationMode.CONSOLE_30_60 -> HudQuickMode.SMOOTH_60
+            InterpolationMode.STABILIZER_60_CAS -> HudQuickMode.FSR_CAS_ONLY
+        }
+    }
 
     @Synchronized
     fun ensureMonitoringStarted(context: Context) {
@@ -119,16 +139,24 @@ object PipelineController {
     fun updateLiveConfig(
         config: LiveRenderConfig,
         preferredModeId: Int,
-        presetLabel: String
+        presetLabel: String,
+        context: Context? = null
     ) {
+        val prevSpatialScale = DisplayResizeState.spatialCaptureScalePercent(currentLiveConfig.motionScalePercent)
         val merged = mergeThermalState(config, _thermalState.value)
         currentLiveConfig = merged
         activePreferredModeId = preferredModeId
         activePresetLabel = presetLabel
         renderThread?.updateLiveConfig(merged)
 
+        val nextSpatialScale = DisplayResizeState.spatialCaptureScalePercent(merged.motionScalePercent)
+        if (prevSpatialScale != nextSpatialScale) {
+            FrameCaptureService.onSpatialCaptureScaleChanged()
+        }
+
         if (renderThread != null) {
             val surfaceRate = resolveSurfaceFrameRate(merged)
+            context?.let { DisplayRefreshController.applyTargetRefreshRate(it, surfaceRate) }
             FrameBoostOverlayService.updateDisplayRate(preferredModeId, surfaceRate)
         }
     }
@@ -136,28 +164,47 @@ object PipelineController {
     fun onForegroundPackageDetected(context: Context, packageName: String) {
         ensureMonitoringStarted(context)
         _foregroundPackage.value = packageName
-        if (!latestSettings.autoPilotEnabled) return
+        if (!isAutoPilotActive()) return
+
+        val nowMs = System.currentTimeMillis()
+        if (!AutoPilotManager.shouldTriggerGameSession(
+                packageName = packageName,
+                nowMs = nowMs,
+                lastActiveGamePackage = lastActiveGamePackage,
+                cooldownTimestamps = packageCooldownTimestamps
+            )
+        ) {
+            return
+        }
+
+        val customMap = latestSettings.customProfiles.associateBy { it.packageName }
+        val captureFps = metricsTracker.latestRollingCaptureFps(System.nanoTime())
+        val classified = UniversalGameClassifier.inspectPackage(
+            context = context.applicationContext,
+            packageName = packageName,
+            customProfiles = customMap,
+            observedCaptureFps = captureFps
+        ) ?: return
 
         val profile = latestProfile
         val tier = profile?.hardwareTier ?: latestSettings.hardwareTier
         val maxHz = profile?.maxRefreshRateHz ?: latestSettings.targetFps.toFloat().coerceAtLeast(60f)
-        val customMap = latestSettings.customProfiles.associateBy { it.packageName }
 
         val resolved = AutoPilotManager.resolvePresetForPackage(
             packageName = packageName,
             hardwareTier = tier,
             maxRefreshHz = maxHz,
             customProfiles = customMap,
-            userHudZones = latestSettings.hudZones
-        )
+            userHudZones = latestSettings.hudZones,
+            isSystemCategorizedGame = classified.isSystemCategorizedGame,
+            appLabel = classified.displayName,
+            observedCaptureFps = captureFps
+        ) ?: return
 
-        if (resolved == null) {
-            lastBoostedPackage = null
-            _activeAutoPilotPreset.value = null
-            return
-        }
-
+        lastActiveGamePackage = packageName
+        packageCooldownTimestamps[packageName] = nowMs
         _activeAutoPilotPreset.value = resolved
+
         val preferredModeId = profile?.preferredModeIdForTargetFps(resolved.targetFps)
             ?: latestSettings.preferredDisplayModeId
 
@@ -170,33 +217,64 @@ object PipelineController {
             targetPanelHz = resolved.targetFps.toFloat(),
             minCaptureFpsGateOverride = resolved.minCaptureFpsGate
         )
-        updateLiveConfig(updatedConfig, preferredModeId, resolved.presetLabel)
+        updateLiveConfig(updatedConfig, preferredModeId, resolved.presetLabel, context)
 
-        val isNewLaunch = lastBoostedPackage != packageName
-        if (isNewLaunch) {
-            lastBoostedPackage = packageName
+        scope.launch {
+            val repo = SettingsRepository(context.applicationContext)
+            repo.applyAutoPilotProfile(
+                mode = resolved.mode,
+                motionScalePercent = resolved.motionScalePercent,
+                casSharpness = resolved.casSharpness,
+                targetFps = resolved.targetFps,
+                preferredModeId = preferredModeId,
+                hudMaskEnabled = resolved.hudMaskEnabled
+            )
+            val report = SystemOptimizer.optimizeForGame(context.applicationContext, packageName)
+            _lastBoostReport.value = report
+        }
+    }
+
+    fun selectQuickModeFromHud(context: Context, quickMode: HudQuickMode) {
+        val appContext = context.applicationContext
+        val profile = latestProfile
+        val allowedFps = profile?.allowedTargetFpsOptions() ?: listOf(60)
+        val repo = SettingsRepository(appContext)
+
+        if (quickMode == HudQuickMode.AUTO) {
             scope.launch {
-                val repo = SettingsRepository(context.applicationContext)
-                repo.applyAutoPilotProfile(
-                    mode = resolved.mode,
-                    motionScalePercent = resolved.motionScalePercent,
-                    casSharpness = resolved.casSharpness,
-                    targetFps = resolved.targetFps,
-                    preferredModeId = preferredModeId,
-                    hudMaskEnabled = resolved.hudMaskEnabled
-                )
-                val report = SystemOptimizer.optimizeForGame(context.applicationContext, packageName)
-                _lastBoostReport.value = report
-                mainHandler.post {
-                    val toastMsg = context.getString(
-                        R.string.autopilot_toast_format,
-                        resolved.displayName,
-                        report.freedRamMb,
-                        report.gameModeLabel
-                    )
-                    Toast.makeText(context.applicationContext, toastMsg, Toast.LENGTH_LONG).show()
-                }
+                repo.setAutoPilotEnabled(true)
             }
+            return
+        }
+
+        val targetMode = when (quickMode) {
+            HudQuickMode.BOOST_120_PLUS -> InterpolationMode.COMPETITIVE_60_120
+            HudQuickMode.SMOOTH_60 -> InterpolationMode.CONSOLE_30_60
+            HudQuickMode.FSR_CAS_ONLY -> InterpolationMode.STABILIZER_60_CAS
+            HudQuickMode.AUTO -> InterpolationMode.CONSOLE_30_60
+        }
+        val desiredFps = when (targetMode) {
+            InterpolationMode.COMPETITIVE_60_120 -> allowedFps.lastOrNull() ?: 60
+            InterpolationMode.CONSOLE_30_60,
+            InterpolationMode.STABILIZER_60_CAS -> 60
+        }
+        val preferredModeId = profile?.preferredModeIdForTargetFps(desiredFps) ?: 0
+        val presetLabel = when (targetMode) {
+            InterpolationMode.CONSOLE_30_60 -> "30->60 Console"
+            InterpolationMode.COMPETITIVE_60_120 -> "60->$desiredFps Competitive"
+            InterpolationMode.STABILIZER_60_CAS -> "60Hz CAS Stabilizer"
+        }
+
+        val updatedConfig = currentLiveConfig.copy(
+            mode = targetMode,
+            targetPanelHz = desiredFps.toFloat(),
+            minCaptureFpsGateOverride = null
+        )
+        updateLiveConfig(updatedConfig, preferredModeId, presetLabel, appContext)
+
+        scope.launch {
+            repo.setInterpolationMode(targetMode)
+            repo.setTargetFps(desiredFps, preferredModeId)
         }
     }
 
@@ -251,6 +329,7 @@ object PipelineController {
         thread.start()
 
         val surfaceRate = resolveSurfaceFrameRate(currentLiveConfig)
+        DisplayRefreshController.applyTargetRefreshRate(context, surfaceRate)
         FrameBoostOverlayService.showOverlays(preferredModeId = preferredModeId, targetHz = surfaceRate)
 
         metricsTickerJob = scope.launch {
@@ -307,6 +386,7 @@ object PipelineController {
 
     fun stopSession(context: Context, errorMessage: String? = null) {
         stopRenderPipelineOnly()
+        DisplayRefreshController.restoreOriginalRefreshRate(context)
         FrameBoostOverlayService.hideOverlays()
         runCatching {
             val stopIntent = Intent(context, FrameCaptureService::class.java).apply {

@@ -154,8 +154,14 @@ object HardwareTierClassifier {
         if (effectiveMax >= 88f || supportedRates.any { it in 88f..95f }) {
             targets.add(90)
         }
-        if (effectiveMax >= 118f || supportedRates.any { it >= 118f }) {
+        if (effectiveMax >= 118f || supportedRates.any { it in 118f..125f }) {
             targets.add(120)
+        }
+        if (effectiveMax >= 140f || supportedRates.any { it in 140f..149f }) {
+            targets.add(144)
+        }
+        if (effectiveMax >= 160f || supportedRates.any { it >= 160f }) {
+            targets.add(165)
         }
         return targets
     }

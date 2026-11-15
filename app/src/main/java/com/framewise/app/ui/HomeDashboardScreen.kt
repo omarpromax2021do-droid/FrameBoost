@@ -48,6 +48,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -79,6 +80,7 @@ import com.framewise.app.ui.theme.FramewiseColors
 import com.framewise.app.updater.ReleaseInfo
 import java.io.File
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -92,6 +94,7 @@ fun HomeDashboardScreen(
     onRemoveCustomGame: (String) -> Unit,
     onToggleLanguage: () -> Unit,
     onSelectMode: (InterpolationMode) -> Unit,
+    onToggleAutoPilot: (Boolean) -> Unit,
     onToggleSession: () -> Unit,
     onRunCalibration: () -> Unit,
     onBuildReport: () -> String?,
@@ -240,9 +243,7 @@ fun HomeDashboardScreen(
                 }
 
                 Text(
-                    text = "${interpolationModeTitle(settings.interpolationMode)} • ${settings.motionScalePercent}% • CAS ${
-                        String.format(Locale.US, "%.2f", settings.casSharpness)
-                    } • ${settings.targetFps} FPS",
+                    text = "${interpolationModeTitle(settings.interpolationMode)} • ${settings.motionScalePercent}% • CAS ${(settings.casSharpness * 100f).roundToInt()}% • ${settings.targetFps} FPS",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -257,6 +258,12 @@ fun HomeDashboardScreen(
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text(
+                    text = stringResource(R.string.low_battery_advisory_tip),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FramewiseColors.AmberWarning
                 )
 
                 if (uiState.sessionState is PipelineSessionState.Error) {
@@ -464,13 +471,9 @@ fun HomeDashboardScreen(
                             style = MaterialTheme.typography.titleMedium
                         )
                     }
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = if (settings.autoPilotEnabled) {
-                            FramewiseColors.ElectricEmerald.copy(alpha = 0.16f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = stringResource(
@@ -481,8 +484,11 @@ fun HomeDashboardScreen(
                                 FramewiseColors.ElectricEmerald
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            }
+                        )
+                        Switch(
+                            checked = settings.autoPilotEnabled,
+                            onCheckedChange = onToggleAutoPilot
                         )
                     }
                 }

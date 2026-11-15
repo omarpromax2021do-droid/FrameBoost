@@ -266,6 +266,7 @@ private fun StepPermissionsContent() {
 
     var notificationsGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
     var batteryUnrestricted by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+    var writeSettingsGranted by remember { mutableStateOf(Settings.System.canWrite(context)) }
     var accessibilityEnabled by remember {
         mutableStateOf(com.framewise.app.capture.FrameBoostOverlayService.isServiceEnabled(context))
     }
@@ -275,6 +276,7 @@ private fun StepPermissionsContent() {
             if (event == Lifecycle.Event.ON_RESUME) {
                 notificationsGranted = hasNotificationPermission(context)
                 batteryUnrestricted = isIgnoringBatteryOptimizations(context)
+                writeSettingsGranted = Settings.System.canWrite(context)
                 accessibilityEnabled =
                     com.framewise.app.capture.FrameBoostOverlayService.isServiceEnabled(context)
             }
@@ -350,6 +352,26 @@ private fun StepPermissionsContent() {
                     runCatching {
                         context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                     }
+                }
+            }
+        }
+    )
+
+    PermissionSetupCard(
+        icon = Icons.Rounded.Speed,
+        title = stringResource(R.string.perm_write_settings_title),
+        description = stringResource(R.string.perm_write_settings_desc),
+        isReady = writeSettingsGranted,
+        actionLabel = stringResource(if (writeSettingsGranted) R.string.btn_granted else R.string.btn_grant),
+        onAction = {
+            if (!writeSettingsGranted) {
+                runCatching {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                    )
                 }
             }
         }

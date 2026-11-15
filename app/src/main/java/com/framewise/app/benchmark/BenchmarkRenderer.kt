@@ -265,7 +265,7 @@ class BenchmarkRenderer(
             queryArmed[qIdx] = true
             queryIndex = 1 - qIdx
         } else {
-            GLES30.glFinish()
+            GLES30.glFlush()
             lastGpuPassMs = (System.nanoTime() - gpuStartNs) / 1_000_000.0
         }
 

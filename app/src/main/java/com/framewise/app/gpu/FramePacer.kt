@@ -18,15 +18,21 @@ data class PacedFrameDecision(
 class FramePacer {
     private var capturedFrameCount: Long = 0L
     private var hasUnpairedCaptureFrame: Boolean = false
+    private var pendingRealFrame: Boolean = false
     private var synthesizedShownForCurrentCapture: Boolean = false
     private var lastPresentedTimeNs: Long = 0L
 
     fun onNewCaptureFrameArrived() {
         capturedFrameCount++
+        pendingRealFrame = true
         if (capturedFrameCount >= 2L) {
             hasUnpairedCaptureFrame = true
             synthesizedShownForCurrentCapture = false
         }
+    }
+
+    fun hasPendingWork(): Boolean {
+        return hasUnpairedCaptureFrame || pendingRealFrame
     }
 
     fun evaluateVsyncTick(
@@ -35,7 +41,7 @@ class FramePacer {
         bypassOpticalFlow: Boolean,
         panelRefreshHz: Float
     ): PacedFrameDecision {
-        if (capturedFrameCount == 0L) {
+        if (capturedFrameCount == 0L || (!hasUnpairedCaptureFrame && !pendingRealFrame)) {
             return PacedFrameDecision(
                 outputType = FrameOutputType.SKIP_TICK,
                 runMotionEstimationPass = false,
@@ -44,7 +50,7 @@ class FramePacer {
             )
         }
 
-        // Console 30->60 mode locks output cadence to 60 FPS (16.66ms) even on 90/120Hz panels.
+        // Lock Console 30->60 cadence to 60Hz (16.66ms) even on 90/120/144Hz panels.
         if (mode == InterpolationMode.CONSOLE_30_60 && panelRefreshHz > 85f && lastPresentedTimeNs > 0L) {
             val deltaNs = frameTimeNs - lastPresentedTimeNs
             if (deltaNs in 1L until CONSOLE_60HZ_MIN_INTERVAL_NS) {
@@ -58,6 +64,8 @@ class FramePacer {
         }
 
         if (mode == InterpolationMode.STABILIZER_60_CAS || bypassOpticalFlow || capturedFrameCount < 2L) {
+            hasUnpairedCaptureFrame = false
+            pendingRealFrame = false
             lastPresentedTimeNs = frameTimeNs
             return PacedFrameDecision(
                 outputType = FrameOutputType.REAL_PASSTHROUGH,
@@ -78,10 +86,8 @@ class FramePacer {
             )
         }
 
-        if (hasUnpairedCaptureFrame && synthesizedShownForCurrentCapture) {
-            hasUnpairedCaptureFrame = false
-        }
-
+        hasUnpairedCaptureFrame = false
+        pendingRealFrame = false
         lastPresentedTimeNs = frameTimeNs
         return PacedFrameDecision(
             outputType = FrameOutputType.REAL_PASSTHROUGH,
@@ -94,12 +100,12 @@ class FramePacer {
     fun reset() {
         capturedFrameCount = 0L
         hasUnpairedCaptureFrame = false
+        pendingRealFrame = false
         synthesizedShownForCurrentCapture = false
         lastPresentedTimeNs = 0L
     }
 
     private companion object {
-        // Slightly below 16.66ms so minor Choreographer jitter on 120Hz panels stays locked at 60 FPS.
         const val CONSOLE_60HZ_MIN_INTERVAL_NS = 14_500_000L
     }
 }

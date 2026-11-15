@@ -15,7 +15,6 @@ float luma(vec3 c) {
 void main() {
     float currCenter = luma(texture(uCurrTex, vUv).rgb);
 
-    // 5-point diamond coarse search
     vec2 stepUv = uTexelSize * 3.0;
     vec2 offsets[5];
     offsets[0] = vec2(0.0, 0.0);
@@ -30,13 +29,11 @@ void main() {
         vec2 sampleUv = clamp(vUv + offsets[i], vec2(0.0), vec2(1.0));
         float prevL = luma(texture(uPrevTex, sampleUv).rgb);
         float diff = abs(currCenter - prevL);
-        if (diff < bestDiff) {
-            bestDiff = diff;
-            bestOffset = offsets[i];
-        }
+        float better = step(diff, bestDiff);
+        bestDiff = mix(bestDiff, diff, better);
+        bestOffset = mix(bestOffset, offsets[i], better);
     }
 
-    // Fast Lucas-Kanade spatial gradient refinement
     float gx = luma(texture(uCurrTex, clamp(vUv + vec2(uTexelSize.x, 0.0), 0.0, 1.0)).rgb) -
                luma(texture(uCurrTex, clamp(vUv - vec2(uTexelSize.x, 0.0), 0.0, 1.0)).rgb);
     float gy = luma(texture(uCurrTex, clamp(vUv + vec2(0.0, uTexelSize.y), 0.0, 1.0)).rgb) -
@@ -48,7 +45,6 @@ void main() {
     vec2 gradStep = vec2(gx, gy) * (-dt / denom) * uTexelSize * 2.0;
     vec2 velocity = clamp(bestOffset + gradStep, vec2(-0.04), vec2(0.04));
 
-    // Bidirectional SAD confidence & local edge magnitude
     float pWarp = luma(texture(uPrevTex, clamp(vUv + 0.5 * velocity, 0.0, 1.0)).rgb);
     float cWarp = luma(texture(uCurrTex, clamp(vUv - 0.5 * velocity, 0.0, 1.0)).rgb);
     float sad = abs(pWarp - cWarp);

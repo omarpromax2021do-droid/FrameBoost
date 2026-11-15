@@ -5,8 +5,6 @@ import android.app.GameManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.widget.Toast
-import com.framewise.app.R
 
 data class BoostReport(
     val freedRamMb: Long,
@@ -58,13 +56,6 @@ object SystemOptimizer {
 
     fun boostAndLaunchGame(context: Context, packageName: String?): BoostReport {
         val report = optimizeForGame(context, targetPackage = packageName)
-        val msg = context.getString(
-            R.string.boost_toast_format,
-            report.freedRamMb,
-            report.availableRamMbAfter,
-            report.gameModeLabel
-        )
-        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
 
         if (!packageName.isNullOrBlank()) {
             val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)?.apply {

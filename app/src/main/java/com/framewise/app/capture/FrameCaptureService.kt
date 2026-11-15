@@ -22,6 +22,7 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.framewise.app.MainActivity
 import com.framewise.app.R
+import com.framewise.app.gpu.DisplayResizeState
 
 class FrameCaptureService : Service() {
 
@@ -29,6 +30,8 @@ class FrameCaptureService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var displayDensityDpi: Int = DisplayMetrics.DENSITY_DEFAULT
+    private var currentRawWidth: Int = 0
+    private var currentRawHeight: Int = 0
     private var currentCaptureWidth: Int = 0
     private var currentCaptureHeight: Int = 0
 
@@ -43,6 +46,8 @@ class FrameCaptureService : Service() {
             if (width <= 0 || height <= 0) return
             val evenW = (width and 1.inv()).coerceAtLeast(16)
             val evenH = (height and 1.inv()).coerceAtLeast(16)
+            // Ignore virtual-display self-echoes at scaled 75% resolution to avoid double downscaling.
+            if (evenW == currentCaptureWidth && evenH == currentCaptureHeight) return
             resizeCaptureTarget(evenW, evenH, displayDensityDpi)
             PipelineController.onCapturedContentResized(evenW, evenH)
         }
@@ -55,12 +60,13 @@ class FrameCaptureService : Service() {
         if (intent?.action == ACTION_STOP) {
             teardownCapture()
             PipelineController.stopRenderPipelineOnly()
+            DisplayRefreshController.restoreOriginalRefreshRate(this)
             FrameBoostOverlayService.hideOverlays()
             stopSelfSafely()
             return START_NOT_STICKY
         }
 
-        // Strict Android 14-17+ rule: startForeground with MEDIA_PROJECTION type BEFORE getMediaProjection.
+        // Android 14+ requires startForeground with MEDIA_PROJECTION type before getMediaProjection.
         promoteToForeground()
 
         val token = MediaProjectionTokenStore.consume()
@@ -89,18 +95,22 @@ class FrameCaptureService : Service() {
         }
 
         mediaProjection = projection
-        // Strict Android 14-17+ rule: registerCallback BEFORE createVirtualDisplay.
+        // Android 14+ requires registering callback before createVirtualDisplay.
         projection.registerCallback(projectionCallback, mainHandler)
 
-        val (captureW, captureH, densityDpi) = resolveCaptureMetrics()
-        currentCaptureWidth = captureW
-        currentCaptureHeight = captureH
-        displayDensityDpi = densityDpi
+        val (rawW, rawH, densityDpi) = resolveCaptureMetrics()
+        val motionScale = PipelineController.currentMotionScalePercent()
+        val spec = DisplayResizeState.computeResizeSpec(rawW, rawH, densityDpi, motionScale)
+        currentRawWidth = spec.surfaceWidth
+        currentRawHeight = spec.surfaceHeight
+        currentCaptureWidth = spec.captureWidth
+        currentCaptureHeight = spec.captureHeight
+        displayDensityDpi = spec.densityDpi
 
         PipelineController.startRenderPipeline(
             context = this,
-            captureWidth = captureW,
-            captureHeight = captureH,
+            captureWidth = spec.surfaceWidth,
+            captureHeight = spec.surfaceHeight,
             targetHz = targetHz,
             preferredModeId = preferredModeId,
             presetLabel = presetLabel,
@@ -110,8 +120,8 @@ class FrameCaptureService : Service() {
                     if (virtualDisplay == null) {
                         virtualDisplay = activeProjection.createVirtualDisplay(
                             "FramewiseZeroCopyCapture",
-                            captureW,
-                            captureH,
+                            currentCaptureWidth,
+                            currentCaptureHeight,
                             displayDensityDpi,
                             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                             inputSurface,
@@ -188,17 +198,33 @@ class FrameCaptureService : Service() {
         }
     }
 
-    private fun resizeCaptureTarget(newWidth: Int, newHeight: Int, densityDpi: Int) {
-        val evenW = (newWidth and 1.inv()).coerceAtLeast(16)
-        val evenH = (newHeight and 1.inv()).coerceAtLeast(16)
+    private fun resizeCaptureTarget(newRawWidth: Int, newRawHeight: Int, densityDpi: Int) {
+        val safeRawW = newRawWidth.coerceAtLeast(16)
+        val safeRawH = newRawHeight.coerceAtLeast(16)
         val safeDpi = densityDpi.coerceAtLeast(DisplayMetrics.DENSITY_MEDIUM)
-        if (evenW == currentCaptureWidth && evenH == currentCaptureHeight && safeDpi == displayDensityDpi) {
+        val spec = DisplayResizeState.computeResizeSpec(
+            rawWidth = safeRawW,
+            rawHeight = safeRawH,
+            densityDpi = safeDpi,
+            motionScalePercent = PipelineController.currentMotionScalePercent()
+        )
+        currentRawWidth = spec.surfaceWidth
+        currentRawHeight = spec.surfaceHeight
+        if (spec.captureWidth == currentCaptureWidth &&
+            spec.captureHeight == currentCaptureHeight &&
+            spec.densityDpi == displayDensityDpi
+        ) {
             return
         }
-        currentCaptureWidth = evenW
-        currentCaptureHeight = evenH
-        displayDensityDpi = safeDpi
-        virtualDisplay?.resize(evenW, evenH, safeDpi)
+        currentCaptureWidth = spec.captureWidth
+        currentCaptureHeight = spec.captureHeight
+        displayDensityDpi = spec.densityDpi
+        virtualDisplay?.resize(currentCaptureWidth, currentCaptureHeight, displayDensityDpi)
+    }
+
+    private fun refreshCaptureSpatialScale() {
+        if (currentRawWidth <= 0 || currentRawHeight <= 0) return
+        resizeCaptureTarget(currentRawWidth, currentRawHeight, displayDensityDpi)
     }
 
     private fun resolveCaptureMetrics(): Triple<Int, Int, Int> {
@@ -265,9 +291,15 @@ class FrameCaptureService : Service() {
             }
         }
 
+        fun onSpatialCaptureScaleChanged() {
+            val service = instance ?: return
+            service.mainHandler.post {
+                service.refreshCaptureSpatialScale()
+            }
+        }
+
         fun createCaptureConsentIntent(context: Context): Intent {
             val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            // Open-ended API 34+ check covers Android 14, 15, 16, 17, and future releases.
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForUserChoice())
             } else {

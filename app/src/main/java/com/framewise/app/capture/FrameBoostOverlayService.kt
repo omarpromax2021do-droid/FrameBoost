@@ -32,8 +32,10 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.framewise.app.R
 import com.framewise.app.autopilot.AutoPilotManager
+import com.framewise.app.gpu.DisplayResizeState
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class FrameBoostOverlayService : AccessibilityService() {
 
@@ -46,8 +48,12 @@ class FrameBoostOverlayService : AccessibilityService() {
 
     private var hudContainer: LinearLayout? = null
     private var hudLayoutParams: WindowManager.LayoutParams? = null
+    private var hudTitleView: TextView? = null
+    private var hudCollapseView: TextView? = null
+    private var hudBodyLayout: LinearLayout? = null
     private var hudMetricsView: TextView? = null
     private var hudThermalBadgeView: TextView? = null
+    private var hudModeButtons: Map<HudQuickMode, TextView> = emptyMap()
     private var hudExpanded = true
 
     private var currentPreferredModeId: Int = 0
@@ -68,6 +74,15 @@ class FrameBoostOverlayService : AccessibilityService() {
     @Volatile
     var lastForegroundPackage: String? = null
         private set
+
+    @Volatile
+    private var lastActiveGamePackage: String? = null
+
+    private val autoCollapseRunnable = Runnable {
+        if (hudContainer != null && hudExpanded) {
+            setHudExpanded(false)
+        }
+    }
 
     private val hudUpdateRunnable = object : Runnable {
         override fun run() {
@@ -93,13 +108,16 @@ class FrameBoostOverlayService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val pkg = event.packageName?.toString()
-            if (!AutoPilotManager.isIgnoredPackage(pkg, packageName) && !pkg.isNullOrBlank()) {
-                lastForegroundPackage = pkg
-                PipelineController.onForegroundPackageDetected(applicationContext, pkg)
-            }
-        }
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        if (!PipelineController.isAutoPilotActive()) return
+
+        val pkg = event.packageName?.toString()
+        if (pkg.isNullOrBlank() || AutoPilotManager.isIgnoredPackage(pkg, packageName)) return
+        if (pkg == lastActiveGamePackage) return
+
+        lastActiveGamePackage = pkg
+        lastForegroundPackage = pkg
+        PipelineController.onForegroundPackageDetected(applicationContext, pkg)
     }
 
     override fun onInterrupt() {
@@ -109,6 +127,7 @@ class FrameBoostOverlayService : AccessibilityService() {
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         runCatching { displayManager?.unregisterDisplayListener(displayListener) }
         removeOverlaysInternal()
+        DisplayRefreshController.restoreOriginalRefreshRate(this)
         PipelineController.stopSession(this)
         if (instance === this) {
             instance = null
@@ -119,6 +138,7 @@ class FrameBoostOverlayService : AccessibilityService() {
     override fun onDestroy() {
         runCatching { displayManager?.unregisterDisplayListener(displayListener) }
         removeOverlaysInternal()
+        DisplayRefreshController.restoreOriginalRefreshRate(this)
         if (instance === this) {
             instance = null
         }
@@ -128,6 +148,7 @@ class FrameBoostOverlayService : AccessibilityService() {
     private fun attachOverlaysInternal(preferredModeId: Int, targetHz: Float) {
         currentPreferredModeId = preferredModeId
         currentTargetHz = targetHz
+        DisplayRefreshController.applyTargetRefreshRate(this, targetHz)
         val wm = windowManager ?: (getSystemService(WINDOW_SERVICE) as WindowManager).also {
             windowManager = it
         }
@@ -136,9 +157,19 @@ class FrameBoostOverlayService : AccessibilityService() {
             createFullScreenRenderWindow(wm, preferredModeId)
         } else {
             val lp = gameLayoutParams
-            if (lp != null && preferredModeId > 0 && lp.preferredDisplayModeId != preferredModeId) {
-                lp.preferredDisplayModeId = preferredModeId
-                runCatching { wm.updateViewLayout(gameSurfaceView, lp) }
+            if (lp != null) {
+                var layoutChanged = false
+                if (preferredModeId > 0 && lp.preferredDisplayModeId != preferredModeId) {
+                    lp.preferredDisplayModeId = preferredModeId
+                    layoutChanged = true
+                }
+                if (lp.preferredRefreshRate != targetHz) {
+                    lp.preferredRefreshRate = targetHz
+                    layoutChanged = true
+                }
+                if (layoutChanged) {
+                    runCatching { wm.updateViewLayout(gameSurfaceView, lp) }
+                }
             }
             gameSurfaceView?.holder?.surface?.let { surface ->
                 if (surface.isValid) {
@@ -147,8 +178,26 @@ class FrameBoostOverlayService : AccessibilityService() {
             }
         }
 
-        if (hudContainer == null) {
+        val existingHud = hudContainer
+        val existingHudLp = hudLayoutParams
+        if (existingHud == null) {
             createDraggableHudWindow(wm)
+        } else if (existingHudLp != null) {
+            // Mirror preferred display mode onto the touchable HUD window; Android ignores
+            // preferredDisplayModeId on FLAG_NOT_TOUCHABLE overlay windows.
+            var hudChanged = false
+            if (preferredModeId > 0 && existingHudLp.preferredDisplayModeId != preferredModeId) {
+                existingHudLp.preferredDisplayModeId = preferredModeId
+                hudChanged = true
+            }
+            if (existingHudLp.preferredRefreshRate != targetHz) {
+                existingHudLp.preferredRefreshRate = targetHz
+                hudChanged = true
+            }
+            if (hudChanged) {
+                runCatching { wm.updateViewLayout(existingHud, existingHudLp) }
+            }
+            updateHudModeHighlight()
         }
     }
 
@@ -218,6 +267,7 @@ class FrameBoostOverlayService : AccessibilityService() {
             if (preferredModeId > 0) {
                 this.preferredDisplayModeId = preferredModeId
             }
+            this.preferredRefreshRate = currentTargetHz
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -280,11 +330,8 @@ class FrameBoostOverlayService : AccessibilityService() {
         headerRow.addView(collapseView)
         headerRow.addView(stopView)
 
-        val metricsText = TextView(this).apply {
-            setTextColor(Color.parseColor("#EAF2F8"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            typeface = Typeface.MONOSPACE
-            setPadding(0, dp(4), 0, 0)
+        val bodyLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
         }
 
         val thermalBadgeView = TextView(this).apply {
@@ -295,15 +342,74 @@ class FrameBoostOverlayService : AccessibilityService() {
             visibility = View.GONE
         }
 
+        val metricsText = TextView(this).apply {
+            setTextColor(Color.parseColor("#EAF2F8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            typeface = Typeface.MONOSPACE
+            setPadding(0, dp(4), 0, dp(6))
+        }
+
+        val modeButtons = LinkedHashMap<HudQuickMode, TextView>(4)
+        val switcherContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val modeRows = listOf(
+            listOf(
+                HudQuickMode.BOOST_120_PLUS to R.string.hud_mode_120_boost,
+                HudQuickMode.SMOOTH_60 to R.string.hud_mode_60_smooth
+            ),
+            listOf(
+                HudQuickMode.FSR_CAS_ONLY to R.string.hud_mode_fsr_cas,
+                HudQuickMode.AUTO to R.string.hud_mode_auto
+            )
+        )
+        modeRows.forEachIndexed { rowIndex, pairList ->
+            val rowLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                if (rowIndex > 0) {
+                    setPadding(0, dp(4), 0, 0)
+                }
+            }
+            pairList.forEachIndexed { colIndex, (quickMode, labelRes) ->
+                val btn = TextView(this).apply {
+                    text = getString(labelRes)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    setOnClickListener {
+                        PipelineController.selectQuickModeFromHud(
+                            context = this@FrameBoostOverlayService,
+                            quickMode = quickMode
+                        )
+                        updateHudModeHighlight()
+                        updateHudText()
+                        scheduleAutoCollapse()
+                    }
+                }
+                val btnLp = LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                ).apply {
+                    if (colIndex == 0) marginEnd = dp(4)
+                }
+                rowLayout.addView(btn, btnLp)
+                modeButtons[quickMode] = btn
+            }
+            switcherContainer.addView(rowLayout)
+        }
+
+        bodyLayout.addView(thermalBadgeView)
+        bodyLayout.addView(metricsText)
+        bodyLayout.addView(switcherContainer)
+
         collapseView.setOnClickListener {
-            hudExpanded = !hudExpanded
-            metricsText.visibility = if (hudExpanded) View.VISIBLE else View.GONE
-            collapseView.text = if (hudExpanded) "  [−]  " else "  [+]  "
+            setHudExpanded(!hudExpanded)
         }
 
         root.addView(headerRow)
-        root.addView(thermalBadgeView)
-        root.addView(metricsText)
+        root.addView(bodyLayout)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -315,6 +421,10 @@ class FrameBoostOverlayService : AccessibilityService() {
             gravity = Gravity.TOP or Gravity.START
             x = dp(12)
             y = dp(48)
+            if (currentPreferredModeId > 0) {
+                this.preferredDisplayModeId = currentPreferredModeId
+            }
+            this.preferredRefreshRate = currentTargetHz
         }
 
         val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
@@ -342,8 +452,19 @@ class FrameBoostOverlayService : AccessibilityService() {
                         dragging = true
                     }
                     if (dragging) {
-                        params.x = startX + dx
-                        params.y = startY + dy
+                        val (screenW, screenH, _) = queryCurrentDisplayMetrics(wm)
+                        val (clampedX, clampedY) = DisplayResizeState.clampHudPositionToSafeBounds(
+                            x = startX + dx,
+                            y = startY + dy,
+                            hudWidth = root.width.takeIf { it > 0 } ?: dp(160),
+                            hudHeight = root.height.takeIf { it > 0 } ?: dp(48),
+                            screenWidth = screenW,
+                            screenHeight = screenH,
+                            marginPx = dp(8),
+                            minTopPx = dp(24)
+                        )
+                        params.x = clampedX
+                        params.y = clampedY
                         runCatching { wm.updateViewLayout(root, params) }
                     }
                     true
@@ -351,7 +472,9 @@ class FrameBoostOverlayService : AccessibilityService() {
 
                 MotionEvent.ACTION_UP -> {
                     if (!dragging) {
-                        collapseView.performClick()
+                        setHudExpanded(!hudExpanded)
+                    } else if (hudExpanded) {
+                        scheduleAutoCollapse()
                     }
                     true
                 }
@@ -363,17 +486,93 @@ class FrameBoostOverlayService : AccessibilityService() {
         wm.addView(root, params)
         hudContainer = root
         hudLayoutParams = params
+        hudTitleView = titleView
+        hudCollapseView = collapseView
+        hudBodyLayout = bodyLayout
         hudMetricsView = metricsText
         hudThermalBadgeView = thermalBadgeView
+        hudModeButtons = modeButtons
+        hudExpanded = true
 
+        updateHudModeHighlight()
         updateHudText()
         mainHandler.removeCallbacks(hudUpdateRunnable)
         mainHandler.postDelayed(hudUpdateRunnable, 250L)
+        scheduleAutoCollapse()
+    }
+
+    private fun setHudExpanded(expanded: Boolean) {
+        hudExpanded = expanded
+        hudBodyLayout?.visibility = if (expanded) View.VISIBLE else View.GONE
+        hudCollapseView?.text = if (expanded) "  [−]  " else "  [+]  "
+        updateHudText()
+        if (expanded) {
+            updateHudModeHighlight()
+            scheduleAutoCollapse()
+        } else {
+            mainHandler.removeCallbacks(autoCollapseRunnable)
+        }
+        val wm = windowManager ?: return
+        hudContainer?.post { clampHudWindowBounds(wm) }
+    }
+
+    private fun scheduleAutoCollapse() {
+        mainHandler.removeCallbacks(autoCollapseRunnable)
+        mainHandler.postDelayed(autoCollapseRunnable, AUTO_COLLAPSE_DELAY_MS)
+    }
+
+    private fun clampHudWindowBounds(wm: WindowManager, screenW: Int? = null, screenH: Int? = null) {
+        val view = hudContainer ?: return
+        val params = hudLayoutParams ?: return
+        val (resolvedW, resolvedH) = if (screenW != null && screenH != null) {
+            screenW to screenH
+        } else {
+            val metrics = queryCurrentDisplayMetrics(wm)
+            metrics.first to metrics.second
+        }
+        val (clampedX, clampedY) = DisplayResizeState.clampHudPositionToSafeBounds(
+            x = params.x,
+            y = params.y,
+            hudWidth = view.width.takeIf { it > 0 } ?: dp(160),
+            hudHeight = view.height.takeIf { it > 0 } ?: dp(48),
+            screenWidth = resolvedW,
+            screenHeight = resolvedH,
+            marginPx = dp(8),
+            minTopPx = dp(24)
+        )
+        if (clampedX != params.x || clampedY != params.y) {
+            params.x = clampedX
+            params.y = clampedY
+            runCatching { wm.updateViewLayout(view, params) }
+        }
+    }
+
+    private fun updateHudModeHighlight() {
+        val activeMode = PipelineController.activeQuickMode()
+        hudModeButtons.forEach { (quickMode, button) ->
+            val selected = quickMode == activeMode
+            button.background = GradientDrawable().apply {
+                setColor(Color.parseColor(if (selected) "#2E00E5FF" else "#161E29"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor(if (selected) "#00E5FF" else "#33475B"))
+            }
+            button.setTextColor(Color.parseColor(if (selected) "#FFFFFF" else "#9FB0C4"))
+        }
     }
 
     private fun updateHudText() {
-        val tv = hudMetricsView ?: return
         val m = PipelineController.latestMetricsSnapshot()
+        hudTitleView?.let { title ->
+            title.text = if (hudExpanded) {
+                getString(R.string.app_name)
+            } else {
+                val fpsInt = if (m.outputFps >= 1f) m.outputFps.roundToInt() else currentTargetHz.roundToInt()
+                "⚡ $fpsInt FPS"
+            }
+        }
+        if (!hudExpanded) return
+
+        val tv = hudMetricsView ?: return
         hudThermalBadgeView?.let { badge ->
             if (!m.thermalBadge.isNullOrBlank()) {
                 badge.text = m.thermalBadge
@@ -399,6 +598,7 @@ class FrameBoostOverlayService : AccessibilityService() {
 
     private fun removeOverlaysInternal() {
         mainHandler.removeCallbacks(hudUpdateRunnable)
+        mainHandler.removeCallbacks(autoCollapseRunnable)
         val wm = windowManager
         hudContainer?.let { view ->
             runCatching { wm?.removeViewImmediate(view) }
@@ -408,10 +608,15 @@ class FrameBoostOverlayService : AccessibilityService() {
         }
         hudContainer = null
         hudLayoutParams = null
+        hudTitleView = null
+        hudCollapseView = null
+        hudBodyLayout = null
         hudMetricsView = null
         hudThermalBadgeView = null
+        hudModeButtons = emptyMap()
         gameSurfaceView = null
         gameLayoutParams = null
+        DisplayRefreshController.restoreOriginalRefreshRate(this)
     }
 
     private fun applyAdaptiveRefreshRate(surface: Surface, targetHz: Float) {
@@ -447,6 +652,7 @@ class FrameBoostOverlayService : AccessibilityService() {
             lp.height = WindowManager.LayoutParams.MATCH_PARENT
             runCatching { wm.updateViewLayout(view, lp) }
         }
+        clampHudWindowBounds(wm, realW, realH)
         PipelineController.onDisplaySizeChanged(realW, realH, densityDpi)
     }
 
@@ -479,6 +685,8 @@ class FrameBoostOverlayService : AccessibilityService() {
     }
 
     companion object {
+        private const val AUTO_COLLAPSE_DELAY_MS = 6000L
+
         @Volatile
         private var instance: FrameBoostOverlayService? = null
 

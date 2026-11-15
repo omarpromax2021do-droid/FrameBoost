@@ -28,11 +28,11 @@ val hasReleaseKeystore = !releaseStoreFilePath.isNullOrBlank() &&
     !releaseKeyPassword.isNullOrBlank()
 
 val appVersionCode: Int = providers.gradleProperty("versionCode")
-    .map { it.toIntOrNull() ?: 2 }
-    .getOrElse(2)
+    .map { it.toIntOrNull() ?: 3 }
+    .getOrElse(3)
 
 val appVersionName: String = providers.gradleProperty("versionName")
-    .getOrElse("1.0.1")
+    .getOrElse("1.0.2")
 
 android {
     namespace = "com.framewise.app"

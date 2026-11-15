@@ -13,6 +13,7 @@ import android.opengl.GLES30
 import android.opengl.GLES31
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Process
 import android.view.Choreographer
 import android.view.Surface
 import com.framewise.app.capture.FrameBoostOverlayService
@@ -23,6 +24,7 @@ import java.nio.FloatBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 data class LiveRenderConfig(
     val mode: InterpolationMode = InterpolationMode.CONSOLE_30_60,
@@ -71,8 +73,8 @@ data class LiveRenderConfig(
 
 class GLRenderThread(
     private val context: Context,
-    private val initialWidth: Int,
-    private val initialHeight: Int,
+    initialWidth: Int,
+    initialHeight: Int,
     private val metricsTracker: MetricsTracker,
     initialConfig: LiveRenderConfig,
     private val onInputSurfaceReady: (Surface) -> Unit,
@@ -83,23 +85,31 @@ class GLRenderThread(
 
     private lateinit var renderHandler: Handler
     private val running = AtomicBoolean(false)
-
-    @Volatile
-    private var liveConfig: LiveRenderConfig = initialConfig
+    private val vsyncScheduled = AtomicBoolean(false)
+    private val liveConfigRef = AtomicReference(initialConfig)
 
     private var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var eglConfig: EGLConfig? = null
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var pbufferSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private var windowSurface: EGLSurface = EGL14.EGL_NO_SURFACE
-    private var windowWidth: Int = initialWidth.coerceAtLeast(1)
-    private var windowHeight: Int = initialHeight.coerceAtLeast(1)
 
-    private var captureWidth: Int = initialWidth.coerceAtLeast(16)
-    private var captureHeight: Int = initialHeight.coerceAtLeast(16)
+    private var rawDisplayWidth: Int = initialWidth.coerceAtLeast(1)
+    private var rawDisplayHeight: Int = initialHeight.coerceAtLeast(1)
+    private var currentDensityDpi: Int = 160
 
-    @Volatile
-    private var isResizing: Boolean = false
+    private val initialSpec = DisplayResizeState.computeResizeSpec(
+        rawWidth = rawDisplayWidth,
+        rawHeight = rawDisplayHeight,
+        densityDpi = currentDensityDpi,
+        motionScalePercent = initialConfig.motionScalePercent
+    )
+    private var windowWidth: Int = initialSpec.surfaceWidth
+    private var windowHeight: Int = initialSpec.surfaceHeight
+    private var captureWidth: Int = initialSpec.captureWidth
+    private var captureHeight: Int = initialSpec.captureHeight
+
+    private val isResizing = AtomicBoolean(false)
     private var validFramesInCurrentOrientation: Int = 0
     private var lastOverlayVisibleState: Boolean = false
     private var lastCpuSubmissionMs: Double = 0.0
@@ -127,10 +137,13 @@ class GLRenderThread(
     private var supportsDisjointTimerQuery = false
     private val timerQueryIds = IntArray(2)
     private var activeQueryIndex = 0
-    private var queryArmed = BooleanArray(2)
+    private val queryArmed = BooleanArray(2)
     private var lastMeasuredGpuPassMs: Double = 0.0
+    private var renderedFrameCount: Long = 0L
 
     override fun onLooperPrepared() {
+        // Elevate render thread priority so OEM game boosters do not throttle presentation cadence.
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
         renderHandler = Handler(looper)
         try {
             initEgl()
@@ -138,7 +151,6 @@ class GLRenderThread(
             running.set(true)
             val surface = inputSurface ?: error("Input Surface was not created")
             onInputSurfaceReady(surface)
-            Choreographer.getInstance().postFrameCallback(this)
         } catch (t: Throwable) {
             onError(t.message ?: "GLRenderThread initialization failed")
             cleanupInternal()
@@ -147,7 +159,14 @@ class GLRenderThread(
     }
 
     fun updateLiveConfig(newConfig: LiveRenderConfig) {
-        liveConfig = newConfig
+        val prevConfig = liveConfigRef.getAndSet(newConfig)
+        val prevSpatial = DisplayResizeState.spatialCaptureScalePercent(prevConfig.motionScalePercent)
+        val nextSpatial = DisplayResizeState.spatialCaptureScalePercent(newConfig.motionScalePercent)
+        if (prevSpatial != nextSpatial && ::renderHandler.isInitialized) {
+            renderHandler.post {
+                applyDisplayResizeInternal(rawDisplayWidth, rawDisplayHeight, currentDensityDpi)
+            }
+        }
     }
 
     fun attachOutputSurface(surface: Surface, width: Int, height: Int) {
@@ -164,13 +183,16 @@ class GLRenderThread(
                 windowSurface = created
                 val safeW = width.coerceAtLeast(1)
                 val safeH = height.coerceAtLeast(1)
+                rawDisplayWidth = safeW
+                rawDisplayHeight = safeH
                 windowWidth = safeW
                 windowHeight = safeH
                 EGL14.eglMakeCurrent(eglDisplay, windowSurface, windowSurface, eglContext)
                 if ((safeW > safeH) != (captureWidth > captureHeight)) {
-                    applyDisplayResizeInternal(safeW, safeH, 160)
+                    applyDisplayResizeInternal(safeW, safeH, currentDensityDpi)
                 }
                 clearOutputSurfaceTransparent()
+                scheduleNextVsyncIfNeeded()
             }
         }
     }
@@ -198,17 +220,17 @@ class GLRenderThread(
         }
     }
 
-    fun updateCaptureSize(width: Int, height: Int) {
-        onDisplaySizeChanged(width, height, 160)
-    }
-
     private fun applyDisplayResizeInternal(newWidth: Int, newHeight: Int, densityDpi: Int) {
         if (!running.get()) return
+        rawDisplayWidth = newWidth.coerceAtLeast(1)
+        rawDisplayHeight = newHeight.coerceAtLeast(1)
+        currentDensityDpi = densityDpi.coerceAtLeast(120)
+
         val spec = DisplayResizeState.computeResizeSpec(
-            rawWidth = newWidth,
-            rawHeight = newHeight,
-            densityDpi = densityDpi,
-            motionScalePercent = liveConfig.motionScalePercent
+            rawWidth = rawDisplayWidth,
+            rawHeight = rawDisplayHeight,
+            densityDpi = currentDensityDpi,
+            motionScalePercent = liveConfigRef.get().motionScalePercent
         )
         windowWidth = spec.surfaceWidth
         windowHeight = spec.surfaceHeight
@@ -216,16 +238,18 @@ class GLRenderThread(
             return
         }
 
-        isResizing = true
+        isResizing.set(true)
         validFramesInCurrentOrientation = 0
         hasCapturedFrame = false
+        framePacer.reset()
+        smartGateController.reset()
         updateOverlayVisibility(false)
 
         captureWidth = spec.captureWidth
         captureHeight = spec.captureHeight
         inputSurfaceTexture?.setDefaultBufferSize(captureWidth, captureHeight)
         pingPongFbos.ensureAllocated(captureWidth, captureHeight)
-        motionFbo.ensureAllocated(captureWidth, captureHeight, liveConfig.motionScalePercent)
+        motionFbo.ensureAllocated(captureWidth, captureHeight, liveConfigRef.get().motionScalePercent)
         clearFboTransparent(pingPongFbos.prevFboId, pingPongFbos.width, pingPongFbos.height)
         clearFboTransparent(pingPongFbos.currFboId, pingPongFbos.width, pingPongFbos.height)
 
@@ -235,11 +259,12 @@ class GLRenderThread(
         } else if (pbufferSurface != EGL14.EGL_NO_SURFACE) {
             EGL14.eglMakeCurrent(eglDisplay, pbufferSurface, pbufferSurface, eglContext)
         }
-        isResizing = false
+        isResizing.set(false)
     }
 
     fun shutdown() {
         running.set(false)
+        vsyncScheduled.set(false)
         if (!::renderHandler.isInitialized) {
             quitSafely()
             return
@@ -296,9 +321,10 @@ class GLRenderThread(
             GLES31.glViewport(0, 0, windowWidth, windowHeight)
 
             framePacer.onNewCaptureFrameArrived()
-            if (!isResizing) {
+            if (!isResizing.get()) {
                 validFramesInCurrentOrientation++
                 hasCapturedFrame = true
+                scheduleNextVsyncIfNeeded()
             }
         } catch (t: Throwable) {
             onError(t.message ?: "Frame capture GL error")
@@ -306,15 +332,28 @@ class GLRenderThread(
     }
 
     override fun doFrame(frameTimeNanos: Long) {
+        vsyncScheduled.set(false)
         if (!running.get()) return
 
-        if (hasCapturedFrame && windowSurface != EGL14.EGL_NO_SURFACE && pingPongFbos.currTexId != 0) {
+        if (hasCapturedFrame &&
+            windowSurface != EGL14.EGL_NO_SURFACE &&
+            pingPongFbos.currTexId != 0 &&
+            framePacer.hasPendingWork()
+        ) {
             renderPacedFrame(frameTimeNanos)
-        } else {
+        } else if (!hasCapturedFrame) {
             updateOverlayVisibility(false)
         }
 
-        if (running.get()) {
+        if (running.get() && framePacer.hasPendingWork()) {
+            scheduleNextVsyncIfNeeded()
+        }
+    }
+
+    private fun scheduleNextVsyncIfNeeded() {
+        if (!running.get() || !hasCapturedFrame || windowSurface == EGL14.EGL_NO_SURFACE) return
+        if (!framePacer.hasPendingWork()) return
+        if (vsyncScheduled.compareAndSet(false, true)) {
             Choreographer.getInstance().postFrameCallback(this)
         }
     }
@@ -324,7 +363,7 @@ class GLRenderThread(
             EGL14.eglMakeCurrent(eglDisplay, windowSurface, windowSurface, eglContext)
             syncLiveWindowDimensions()
 
-            val cfg = liveConfig
+            val cfg = liveConfigRef.get()
             val nowNs = System.nanoTime()
             val captureFps = metricsTracker.latestRollingCaptureFps(nowNs)
             val cappedRequestedScale = cfg.thermalScaleCapPercent?.let {
@@ -361,7 +400,7 @@ class GLRenderThread(
             )
 
             val keepTransparent = DisplayResizeState.shouldKeepOverlayTransparent(
-                isResizing = isResizing,
+                isResizing = isResizing.get(),
                 validFramesInCurrentOrientation = validFramesInCurrentOrientation,
                 bypassOpticalFlow = effectiveBypass,
                 captureFps = captureFps
@@ -378,10 +417,13 @@ class GLRenderThread(
 
             casSynthesisProgram?.prepareOutputFramebuffer(windowWidth, windowHeight)
 
+            renderedFrameCount++
             val vsyncIntervalMs = 1000.0 / cfg.targetPanelHz.coerceAtLeast(30f)
             val gpuDrawStartNs = System.nanoTime()
             val queryIdx = activeQueryIndex
-            if (supportsDisjointTimerQuery) {
+            val measureTimerQuery = supportsDisjointTimerQuery &&
+                (renderedFrameCount % TIMER_QUERY_POLL_INTERVAL == 0L)
+            if (measureTimerQuery) {
                 pollPreviousTimerQuery(1 - queryIdx, vsyncIntervalMs)
                 GLES30.glBeginQuery(GL_TIME_ELAPSED_EXT, timerQueryIds[queryIdx])
             }
@@ -421,15 +463,14 @@ class GLRenderThread(
                 clearBeforeDraw = false
             )
 
-            if (supportsDisjointTimerQuery) {
+            if (measureTimerQuery) {
                 GLES30.glEndQuery(GL_TIME_ELAPSED_EXT)
-                GLES31.glFlush()
-                lastCpuSubmissionMs = (System.nanoTime() - gpuDrawStartNs) / 1_000_000.0
                 queryArmed[queryIdx] = true
                 activeQueryIndex = 1 - queryIdx
-            } else {
-                GLES31.glFlush()
-                lastCpuSubmissionMs = (System.nanoTime() - gpuDrawStartNs) / 1_000_000.0
+            }
+            GLES31.glFlush()
+            lastCpuSubmissionMs = (System.nanoTime() - gpuDrawStartNs) / 1_000_000.0
+            if (!supportsDisjointTimerQuery) {
                 lastMeasuredGpuPassMs = lastCpuSubmissionMs
             }
 
@@ -444,7 +485,7 @@ class GLRenderThread(
                 captureSourceNs = metricsTracker.lastCaptureTimestampNs()
             )
         } catch (_: Throwable) {
-            // Transient surface teardown during app transition; handled safely on next VSync.
+            // Surface teardown during app switch is recovered safely on next capture frame.
         }
     }
 
@@ -460,8 +501,10 @@ class GLRenderThread(
         if (liveW != windowWidth || liveH != windowHeight) {
             windowWidth = liveW
             windowHeight = liveH
+            rawDisplayWidth = liveW
+            rawDisplayHeight = liveH
             if ((liveW > liveH) != (captureWidth > captureHeight)) {
-                applyDisplayResizeInternal(liveW, liveH, 160)
+                applyDisplayResizeInternal(liveW, liveH, currentDensityDpi)
             }
         }
     }
@@ -568,7 +611,7 @@ class GLRenderThread(
     private fun initGlResources() {
         quadBuffer = createQuadBuffer()
         pingPongFbos.ensureAllocated(captureWidth, captureHeight)
-        motionFbo.ensureAllocated(captureWidth, captureHeight, liveConfig.motionScalePercent)
+        motionFbo.ensureAllocated(captureWidth, captureHeight, liveConfigRef.get().motionScalePercent)
 
         val texIds = IntArray(1)
         GLES30.glGenTextures(1, texIds, 0)
@@ -740,5 +783,6 @@ class GLRenderThread(
         const val EGL_CONTEXT_MINOR_VERSION_KHR = 0x30FB
         const val GL_TIME_ELAPSED_EXT = 0x88BF
         const val GL_GPU_DISJOINT_EXT = 0x8FBB
+        const val TIMER_QUERY_POLL_INTERVAL = 20L
     }
 }

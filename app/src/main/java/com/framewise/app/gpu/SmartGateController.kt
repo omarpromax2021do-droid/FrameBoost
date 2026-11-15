@@ -12,6 +12,7 @@ class SmartGateController(
     private val downgradeHoldNs: Long = DEFAULT_DOWNGRADE_HOLD_NS,
     private val restoreHoldNs: Long = DEFAULT_RESTORE_HOLD_NS
 ) {
+    private var lastRequestedMode: InterpolationMode = InterpolationMode.CONSOLE_30_60
     private var lastRequestedScale: Int = 40
     private var currentScale: Int = 40
     private var lowFpsFallback: Boolean = false
@@ -29,12 +30,10 @@ class SmartGateController(
         minCaptureFpsOverride: Float? = null
     ): SmartGateDecision {
         val normalizedRequested = normalizeScale(requestedScalePercent)
-        if (normalizedRequested != lastRequestedScale) {
+        if (normalizedRequested != lastRequestedScale || requestedMode != lastRequestedMode) {
+            lastRequestedMode = requestedMode
             lastRequestedScale = normalizedRequested
-            currentScale = normalizedRequested
-            gpuCasOnlyFallback = false
-            unhealthySinceNs = 0L
-            healthySinceNs = 0L
+            resetDegradationState(normalizedRequested)
         }
 
         if (!enabled) {
@@ -60,6 +59,10 @@ class SmartGateController(
 
         val isLowFps = captureFps > 0f && captureFps < minCaptureFps
         val isGpuOverBudget = gpuPassTimeMs > maxGpuBudgetMs
+
+        if (restoreHoldNs <= 0L && captureFps >= minCaptureFps) {
+            lowFpsFallback = false
+        }
 
         if (isLowFps || isGpuOverBudget) {
             healthySinceNs = 0L

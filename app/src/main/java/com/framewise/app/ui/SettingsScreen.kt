@@ -1,5 +1,8 @@
 package com.framewise.app.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -29,10 +32,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.framewise.app.BuildConfig
 import com.framewise.app.CalibrationUiState
 import com.framewise.app.MainUiState
@@ -41,7 +53,7 @@ import com.framewise.app.UpdaterUiState
 import com.framewise.app.ui.theme.FramewiseColors
 import com.framewise.app.updater.ReleaseInfo
 import java.io.File
-import java.util.Locale
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -70,6 +82,19 @@ fun SettingsScreen(
     val profile = uiState.hardwareProfile
     val allowedFps = profile?.allowedTargetFpsOptions() ?: listOf(60)
     val maxPanelHz = (profile?.maxRefreshRateHz ?: 60f).toInt()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var canWriteSettings by remember { mutableStateOf(Settings.System.canWrite(context)) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canWriteSettings = Settings.System.canWrite(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -155,7 +180,7 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        text = String.format(Locale.US, "%.2f", settings.casSharpness),
+                        text = "${(settings.casSharpness * 100f).roundToInt()}%",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -164,6 +189,11 @@ fun SettingsScreen(
                     value = settings.casSharpness,
                     onValueChange = onChangeCasSharpness,
                     valueRange = 0f..1f
+                )
+                Text(
+                    text = stringResource(R.string.settings_cas_normalized_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Text(
@@ -184,6 +214,34 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text(
+                    text = stringResource(R.string.low_battery_advisory_tip),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FramewiseColors.AmberWarning
+                )
+                OutlinedButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (canWriteSettings) {
+                                R.string.settings_write_settings_granted
+                            } else {
+                                R.string.settings_write_settings_grant
+                            }
+                        )
+                    )
+                }
             }
 
             // Auto-Pilot & Protections

@@ -106,23 +106,88 @@ class SmartGateControllerTest {
         assertEquals(1080, portrait.surfaceWidth)
         assertEquals(2400, portrait.surfaceHeight)
 
-        val landscape = DisplayResizeState.computeResizeSpec(
+        val landscapeBalanced = DisplayResizeState.computeResizeSpec(
             rawWidth = 2400,
             rawHeight = 1080,
             densityDpi = 400,
             motionScalePercent = 40
         )
-        assertEquals(2400, landscape.surfaceWidth)
-        assertEquals(1080, landscape.surfaceHeight)
-        assertEquals(2400, landscape.captureWidth)
-        assertEquals(1080, landscape.captureHeight)
-        assertEquals(960, landscape.motionWidth)
-        assertEquals(432, landscape.motionHeight)
+        assertEquals(2400, landscapeBalanced.surfaceWidth)
+        assertEquals(1080, landscapeBalanced.surfaceHeight)
+        assertEquals(1800, landscapeBalanced.captureWidth)
+        assertEquals(810, landscapeBalanced.captureHeight)
+        assertEquals(720, landscapeBalanced.motionWidth)
+        assertEquals(324, landscapeBalanced.motionHeight)
+
+        val landscapeUltraLight = DisplayResizeState.computeResizeSpec(
+            rawWidth = 2400,
+            rawHeight = 1080,
+            densityDpi = 400,
+            motionScalePercent = 25
+        )
+        assertEquals(1800, landscapeUltraLight.captureWidth)
+        assertEquals(810, landscapeUltraLight.captureHeight)
+        assertEquals(450, landscapeUltraLight.motionWidth)
+        assertEquals(202, landscapeUltraLight.motionHeight)
+
+        val landscapeQuality = DisplayResizeState.computeResizeSpec(
+            rawWidth = 2400,
+            rawHeight = 1080,
+            densityDpi = 400,
+            motionScalePercent = 60
+        )
+        assertEquals(2400, landscapeQuality.captureWidth)
+        assertEquals(1080, landscapeQuality.captureHeight)
+        assertEquals(1440, landscapeQuality.motionWidth)
+        assertEquals(648, landscapeQuality.motionHeight)
 
         assertTrue(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = true, validFramesInCurrentOrientation = 10, bypassOpticalFlow = false, captureFps = 60f))
         assertTrue(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = false, validFramesInCurrentOrientation = 2, bypassOpticalFlow = false, captureFps = 60f))
         assertTrue(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = false, validFramesInCurrentOrientation = 5, bypassOpticalFlow = true, captureFps = 18f))
         assertFalse(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = false, validFramesInCurrentOrientation = 3, bypassOpticalFlow = false, captureFps = 60.1f))
         assertFalse(DisplayResizeState.shouldKeepOverlayTransparent(isResizing = false, validFramesInCurrentOrientation = 5, bypassOpticalFlow = true, captureFps = 35f))
+    }
+
+    @Test
+    fun casNormalization_hudBoundsClamping_andImmediateLowFpsRecovery() {
+        assertEquals(0.0f, CasSynthesisShaderProgram.normalizeCasWeight(0.0f), 0.0001f)
+        assertEquals(0.175f, CasSynthesisShaderProgram.normalizeCasWeight(0.5f), 0.0001f)
+        assertEquals(0.35f, CasSynthesisShaderProgram.normalizeCasWeight(1.0f), 0.0001f)
+        assertEquals(0.35f, CasSynthesisShaderProgram.normalizeCasWeight(1.5f), 0.0001f)
+
+        val clamped = DisplayResizeState.clampHudPositionToSafeBounds(
+            x = 2300,
+            y = 1050,
+            hudWidth = 240,
+            hudHeight = 120,
+            screenWidth = 1080,
+            screenHeight = 2400,
+            marginPx = 16,
+            minTopPx = 48
+        )
+        assertEquals(824, clamped.first)
+        assertEquals(1050, clamped.second)
+
+        val landscapeClamped = DisplayResizeState.clampHudPositionToSafeBounds(
+            x = -50,
+            y = 2200,
+            hudWidth = 240,
+            hudHeight = 120,
+            screenWidth = 2400,
+            screenHeight = 1080,
+            marginPx = 16,
+            minTopPx = 48
+        )
+        assertEquals(16, landscapeClamped.first)
+        assertEquals(944, landscapeClamped.second)
+
+        val immediateGate = SmartGateController(downgradeHoldNs = 1_500_000_000L, restoreHoldNs = 0L)
+        immediateGate.evaluate(true, InterpolationMode.COMPETITIVE_60_120, 40, 28f, 1.8f, 1_000_000_000L)
+        val tripped = immediateGate.evaluate(true, InterpolationMode.COMPETITIVE_60_120, 40, 28f, 1.8f, 2_600_000_000L)
+        assertTrue(tripped.bypassOpticalFlow)
+
+        val restored = immediateGate.evaluate(true, InterpolationMode.COMPETITIVE_60_120, 40, 45f, 1.8f, 2_616_000_000L)
+        assertFalse(restored.bypassOpticalFlow)
+        assertEquals("Active: 60\u2192120 Optical Flow + CAS", restored.statusReason)
     }
 }

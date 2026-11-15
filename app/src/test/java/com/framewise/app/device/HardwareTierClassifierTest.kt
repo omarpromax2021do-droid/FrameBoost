@@ -97,5 +97,13 @@ class HardwareTierClassifierTest {
             listOf(60, 90, 120),
             HardwareTierClassifier.supportedTargetFps(120f, listOf(60f, 90f, 120f))
         )
+        assertEquals(
+            listOf(60, 90, 120, 144),
+            HardwareTierClassifier.supportedTargetFps(144f, listOf(60f, 90f, 120f, 144f))
+        )
+        assertEquals(
+            listOf(60, 90, 120, 144, 165),
+            HardwareTierClassifier.supportedTargetFps(165f, listOf(60f, 120f, 144f, 165f))
+        )
     }
 }
